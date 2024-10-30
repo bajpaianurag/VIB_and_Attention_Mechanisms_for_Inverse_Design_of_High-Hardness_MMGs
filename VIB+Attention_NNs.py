@@ -263,7 +263,7 @@ beta_values = []
 
 attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
 
-epochs = 2000
+epochs = 1000
 for epoch in range(epochs):
     history = vib_attention_model.fit(
         [X_comp_train, X_load_train], y_train,
