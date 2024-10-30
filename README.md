@@ -28,13 +28,4 @@ Optimization of Latent Vectors:
 Starting from an initial set of latent vectors around high-hardness points, a gradient-based optimization loop was employed to minimize the mean squared error between predicted hardness and the desired hardness target (e.g., 2000 HV).
 Latent Vector Constraints: Latent vectors were constrained to ensure that the decoded compositions summed to 1, maintaining physical validity.
 
-Decoding Latent Vectors to Compositions:
-The optimized latent vectors were decoded back to composition space using the decoder model.
-The decoded compositions were checked to ensure they were physically valid (e.g., fractions summing to 1).
-Export of New Alloy Compositions: The final, optimized compositions were exported to a CSV file for further experimental testing or analysis.
-
-Visualization and Analysis:
-Calibration Curves: Plotted to assess the reliability of probabilistic predictions and visualize model calibration.
-Loss Curves: Training and validation loss curves were plotted with enhanced aesthetics to track model convergence and identify any signs of overfitting.
-Attention Score Bar Charts: Showed the average attention weights for each composition feature, providing insights into which elements were most important for hardness prediction.
-t-SNE and Latent Space Visualization: Used to visualize the distribution of both original and optimized samples in latent space, aiding in understanding the structure of the learned latent representations.
+Decoding Latent Vectors to Compositions: The optimized latent vectors were decoded back to composition space using the decoder model. The decoded compositions were checked to ensure they were physically valid (e.g., fractions summing to 1).
