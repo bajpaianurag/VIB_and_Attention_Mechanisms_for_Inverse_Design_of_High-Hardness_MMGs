@@ -375,7 +375,6 @@ for spine in ax.spines.values():
 plt.savefig("Predicted vs. Actual Hardness with Uncertainty Intervals", dpi=600, format='jpeg')
 plt.show()
 
-
 # Distribution of Predicted Uncertainty
 fig, ax = plt.subplots(figsize=(10, 8))
 sns.histplot(y_pred_std, bins=30, color='red', kde=True, alpha=0.7, ax=ax)
@@ -556,7 +555,7 @@ num_new_alloys = 20
 latent_dim_size = decoder_model.input_shape[1]  # Get latent dimension size from the decoder model
 initial_latent_vectors = 0.1 * np.random.normal(size=(num_new_alloys, latent_dim_size))
 learning_rate = 0.00001
-num_iterations = 10000000
+num_iterations = 5000
 
 latent_vectors_tf = tf.Variable(initial_latent_vectors, dtype=tf.float32)
 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
