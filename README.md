@@ -3,7 +3,9 @@ The project aims to design and optimize new alloy compositions, specifically foc
 
 Model Architecture:
 
-Variational Information Bottleneck (VIB) Layer: This layer encourages the model to capture only the most relevant information from the input by balancing reconstruction loss with a KL-divergence regularization term, controlled by the beta parameter. KL Annealing and Dynamic Beta Adjustment: These techniques were used to gradually increase the influence of KL divergence during training, improving the model's robustness in learning a compact and relevant latent representation.
+Variational Information Bottleneck (VIB) Layer: This layer encourages the model to capture only the most relevant information from the input by balancing reconstruction loss with a KL-divergence regularization term, controlled by the beta parameter. 
+
+KL Annealing and Dynamic Beta Adjustment: These techniques were used to gradually increase the influence of KL divergence during training, improving the model's robustness in learning a compact and relevant latent representation.
 
 Attention Mechanism: 
 
