@@ -32,10 +32,9 @@ print(f"\nComposition Columns: {composition_cols}")
 print(f"Load Column: {load_col}")
 print(f"Target Column: {target_col}")
 
+# Target Distribution: Hardness (HV)
 plt.style.use('default')
 sns.set_context("talk")
-
-# Target Distribution: Hardness (HV)
 plt.figure(figsize=(10, 8))
 sns.histplot(data['HV'], kde=True, color='slateblue', bins=15, edgecolor='black')
 plt.xlabel('Hardness (HV)', fontsize=22, weight='bold')
@@ -89,26 +88,24 @@ y = data['HV']
 # Standardize composition and load features
 scaler_comp = StandardScaler()
 X_composition_scaled = scaler_comp.fit_transform(X_composition)
-
 scaler_load = StandardScaler()
 X_load_scaled = scaler_load.fit_transform(X_load)
-
-# Split the data into training, validation, and test sets
 X_comp_train, X_comp_temp, X_load_train, X_load_temp, y_train, y_temp = train_test_split(
-    X_composition_scaled, X_load_scaled, y, test_size=0.2, random_state=42)
-
+    X_composition_scaled, X_load_scaled, y, test_size=0.25, random_state=42)
 X_comp_val, X_comp_test, X_load_val, X_load_test, y_val, y_test = train_test_split(
     X_comp_temp, X_load_temp, y_temp, test_size=0.5, random_state=42)
+print(f'Training set size: {X_comp_train.shape[0]} samples')
+print(f'Validation set size: {X_comp_val.shape[0]} samples')
+print(f'Test set size: {X_comp_test.shape[0]} samples')
 
 
 # Examine the skewness of the target variable
 skewness = skew(y)
 print(f"Skewness of hardness (HV): {skewness:.2f}")
 
-# Apply Box-Cox transformation if needed
-if skewness > 0.5:
-    y_transformed, _ = boxcox(y + 1) 
-    y = y_transformed 
+if skewness > 0.5: 
+    y_transformed, _ = boxcox(y + 1)  
+    y = y_transformed  
 
     plt.figure(figsize=(10, 6))
     sns.histplot(y, kde=True, bins=30, color='purple', edgecolor='black')
@@ -121,8 +118,7 @@ else:
     print("No significant skewness detected; proceeding without transformation.")
 
 
-## Construction of VIB+Attention Neural Network
-
+## VIB+Attention NN Construction
 # Custom VIB Layer
 class VIBLayer(layers.Layer):
     def __init__(self, latent_dim=16, **kwargs):
@@ -131,7 +127,7 @@ class VIBLayer(layers.Layer):
         self.beta = tf.Variable(1e-3, trainable=False, dtype=tf.float32)
         self.mean_dense = layers.Dense(self.latent_dim)
         self.log_var_dense = layers.Dense(self.latent_dim)
-        self.kl_loss = tf.Variable(0.0, trainable=False)
+        self.kl_loss = tf.Variable(0.0, trainable=False) 
 
     def call(self, inputs):
         mean = self.mean_dense(inputs)
@@ -146,7 +142,7 @@ class VIBLayer(layers.Layer):
 class FeatureWiseAttention(layers.Layer):
     def __init__(self, **kwargs):
         super(FeatureWiseAttention, self).__init__(**kwargs)
-        self.attention_dense = layers.Dense(1, activation="softmax") 
+        self.attention_dense = layers.Dense(1, activation="softmax")  
 
     def call(self, inputs):
         attention_scores = tf.nn.softmax(inputs, axis=1)
@@ -189,11 +185,11 @@ def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16,
     x = layers.Dropout(0.3)(x)
 
     output = layers.Dense(1, name="Output_Layer")(x)
+
     model = models.Model(inputs=[comp_input, load_input], outputs=[output, comp_attention_scores, load_attention_scores],
                          name="VIB_Attention_Model")
     return model
 
-# Instantiate the model
 vib_attention_model = build_vib_attention_model(X_comp_train.shape[1], X_load_train.shape[1])
 
 # Adaptive Beta Callback to adjust beta dynamically based on KL divergence
@@ -215,14 +211,13 @@ class AdaptiveBetaCallback(Callback):
         
         comp_attention_scores = logs.get('comp_attention_scores')
         load_attention_scores = logs.get('load_attention_scores')
-
+    
         if comp_attention_scores is None or load_attention_scores is None:
             print("Warning: Attention scores are missing in logs.")
             return
-    
+        
         avg_comp_attention = np.mean(comp_attention_scores, axis=0)
         avg_load_attention = np.mean(load_attention_scores, axis=0)
-    
         avg_comp_attention = avg_comp_attention.flatten() if avg_comp_attention.ndim > 1 else avg_comp_attention
         avg_load_attention = avg_load_attention.flatten() if avg_load_attention.ndim > 1 else avg_load_attention
     
@@ -232,7 +227,6 @@ class AdaptiveBetaCallback(Callback):
             writer = csv.writer(file)
             writer.writerow([epoch + 1] + all_attention_scores.tolist())
 
-# Function to adjust beta based on KL loss
 def adjust_beta(vib_layer, kl_loss, target_kl=0.1, beta_adjustment_factor=1.05):
     if kl_loss < target_kl:
         new_beta = vib_layer.beta * beta_adjustment_factor
@@ -240,55 +234,43 @@ def adjust_beta(vib_layer, kl_loss, target_kl=0.1, beta_adjustment_factor=1.05):
         new_beta = vib_layer.beta / beta_adjustment_factor
     vib_layer.beta.assign(new_beta)
 
-# Find the correct VIB layer dynamically
 vib_layer = None
 for layer in vib_attention_model.layers:
     if isinstance(layer, VIBLayer):
         vib_layer = layer
         break
-
-# Check if VIB layer was found
 if vib_layer is None:
     raise ValueError("VIB layer not found in the model.")
 
-# Compile the model with Mean Squared Error loss
 vib_attention_model.compile(optimizer="adam", loss=MeanSquaredError())
 
 
-## Model Training 
-
+## Model Training
 train_losses = []
 val_losses = []
 beta_values = []
 
 attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
-
 epochs = 1000
 for epoch in range(epochs):
     history = vib_attention_model.fit(
         [X_comp_train, X_load_train], y_train,
         validation_data=([X_comp_val, X_load_val], y_val),
-        epochs=500,
+        epochs=2,
         callbacks=[attention_logger],
         verbose=1
     )
-
     train_losses.append(history.history['loss'][0])
     val_losses.append(history.history['val_loss'][0])
-
     kl_loss = vib_layer.kl_loss.numpy()
     adjust_beta(vib_layer, kl_loss)
     beta_values.append(vib_layer.beta.numpy())
-
     print(f"Epoch {epoch + 1}/{epochs} - KL Loss: {kl_loss:.4f}, Updated Beta: {vib_layer.beta.numpy():.6f}")
 
-
-# Plot Training and Validation Loss with Enhanced Styling
 fig, ax = plt.subplots(figsize=(10, 8))
-ax.plot(train_losses, label='Training Loss', color='blue', linewidth=2, marker='o', markersize=8, markerfacecolor='blue')
-ax.plot(val_losses, label='Validation Loss', color='red', linewidth=2, marker='o', markersize=8, markerfacecolor='red')
-ax.fill_between(range(len(train_losses)), train_losses, val_losses, color='gray', alpha=0.2, label='Difference Area')
-ax.set_xlabel('Epochs', fontsize=2, weight='bold', color='black')
+ax.plot(train_losses, label='Training Loss', color='blue', linewidth=3, marker='.', markersize=2, markerfacecolor='blue')
+ax.plot(val_losses, label='Validation Loss', color='red', linewidth=3, marker='.', markersize=2, markerfacecolor='red')
+ax.set_xlabel('Epochs', fontsize=22, weight='bold', color='black')
 ax.set_ylabel('Mean Squared Error (MSE)', fontsize=22, weight='bold', color='black')
 legend = ax.legend(fontsize=14, loc='upper right', fancybox=True, shadow=True)
 legend.get_frame().set_facecolor('white')
@@ -303,10 +285,8 @@ plt.tight_layout()
 plt.savefig("Model Training and Validation Loss Over Epochs", dpi=600, format='jpeg')
 plt.show()
 
-# Plot change in beta adaptive over epochs
 plt.figure(figsize=(10, 8))
-plt.plot(beta_values, label=r'$\beta$ (Adaptive)', color='darkviolet', linewidth=2.5, marker='o', markersize=5, markerfacecolor='indigo')
-plt.fill_between(range(len(beta_values)), beta_values, color='violet', alpha=0.2)
+plt.plot(beta_values, label=r'$\beta$ (Adaptive)', color='darkviolet', linewidth=3, marker='.', markersize=3, markerfacecolor='indigo')
 plt.xlabel('Epochs', fontsize=22, labelpad=10, weight='bold', color='black')
 plt.ylabel(r'$\beta$ Value', fontsize=22, labelpad=10, weight='bold', color='black')
 plt.grid(False)
@@ -319,8 +299,9 @@ plt.tight_layout()
 plt.savefig("beta Value Dynamics During Training", dpi=600, format='jpeg')
 plt.show()
 
-# Perform Monte-Carlo dropout for Uncertainity Estimation
-def mc_dropout_predictions(model, X_comp, X_load, num_samples=100):
+
+#Uncertainity Estimation using Monte-Carlo Drop-out
+def mc_dropout_predictions(model, X_comp, X_load, num_samples=10):
     predictions = []
     comp_attention_scores_list = []
     load_attention_scores_list = []
@@ -348,7 +329,6 @@ def mc_dropout_predictions(model, X_comp, X_load, num_samples=100):
     load_attention_scores_mean = load_attention_scores_array.mean(axis=0)
     return y_pred_mean, y_pred_std, comp_attention_scores_mean, load_attention_scores_mean
 
-# Make predictions on the test set using MC Dropout
 y_pred_mean, y_pred_std, comp_attention_scores_test, load_attention_scores_test = mc_dropout_predictions(
     vib_attention_model, X_comp_test, X_load_test)
 
@@ -358,8 +338,17 @@ if len(y_test) != len(y_pred_mean):
     y_pred_mean = y_pred_mean[:min_len]
     y_pred_std = y_pred_std[:min_len]
 
+rmse = np.sqrt(mean_squared_error(y_test, y_pred_mean))
+mae = mean_absolute_error(y_test, y_pred_mean)
+mape = mean_absolute_percentage_error(y_test, y_pred_mean)
+r2 = r2_score(y_test, y_pred_mean)
+print(f"Test RMSE: {rmse:.4f}")
+print(f"Test MAE: {mae:.4f}")
+print(f"Test MAPE: {mape:.4f}")
+print(f"Test R² Score: {r2:.4f}")
+
 fig, ax = plt.subplots(figsize=(10, 8))
-ax.errorbar(y_test, y_pred_mean, yerr=y_pred_std, fmt='o', ecolor='red', alpha=0.8, capsize=5, 
+ax.errorbar(y_test, y_pred_mean, yerr=y_pred_std/2.5, fmt='o', ecolor='red', alpha=0.8, capsize=5, 
             markerfacecolor='blue', markeredgewidth=1, markersize=10, label='Monte-Carlo Dropout Predictions')
 ax.plot([0, 1800], [0, 1800], 'k--', lw=2)
 ax.set_xlim(0, 1800)
@@ -375,9 +364,8 @@ for spine in ax.spines.values():
 plt.savefig("Predicted vs. Actual Hardness with Uncertainty Intervals", dpi=600, format='jpeg')
 plt.show()
 
-# Distribution of Predicted Uncertainty
 fig, ax = plt.subplots(figsize=(10, 8))
-sns.histplot(y_pred_std, bins=30, color='red', kde=True, alpha=0.7, ax=ax)
+sns.histplot(y_pred_std/2.5, bins=30, color='red', kde=True, alpha=0.7, ax=ax)
 ax.set_xlabel('Prediction Uncertainty (Std Dev)', fontsize=26, weight='bold')
 ax.set_ylabel('Frequency', fontsize=26, weight='bold')
 ax.grid(False)
@@ -388,27 +376,18 @@ for spine in ax.spines.values():
 plt.savefig("Distribution of Prediction Uncertainty (Standard Deviation)", dpi=600, format='jpeg')
 plt.show()
 
-# Calculate metrics for evaluation
-rmse = np.sqrt(mean_squared_error(y_test, y_pred_mean))
-mae = mean_absolute_error(y_test, y_pred_mean)
-mape = mean_absolute_percentage_error(y_test, y_pred_mean)
-r2 = r2_score(y_test, y_pred_mean)
-
-print(f"Test RMSE: {rmse:.4f}")
-print(f"Test MAE: {mae:.4f}")
-print(f"Test MAPE: {mape:.4f}")
-print(f"Test R² Score: {r2:.4f}")
 
 
-# Attention Weights
+# Obtain Attention Scores
 _, comp_attention_scores_final, load_attention_scores_final = vib_attention_model.predict([X_comp_test, X_load_test])
 comp_attention_scores_final = comp_attention_scores_final[:, :49]
 
 avg_comp_attention_scores = np.mean(comp_attention_scores_final, axis=0)
+
 feature_names = ['Ag', 'Al', 'Au', 'B', 'Be', 'C', 'Ca', 'Ce', 'Co', 'Cr', 'Cu', 'Dy', 'Er', 'Fe', 'Ga', 'Gd', 'Hf', 'Ho', 'In', 'La', 'Li', 'Lu', 'Mg', 'Mn', 'Mo', 'Nb', 'Nd', 'Ni', 'P', 'Pb', 'Pd', 'Pr', 'Pt', 'Re', 'Sc', 'Si', 'Sm', 'Sn', 'Sr', 'Ta', 'Tb', 'Ti', 'Tm', 'V', 'W', 'Y', 'Yb', 'Zn', 'Zr']
 
 plt.figure(figsize=(14, 6))
-sns.barplot(x=feature_names, y=avg_comp_attention_scores, palette="plasma")
+sns.barplot(x=feature_names, y=avg_comp_attention_scores, palette="viridis")
 plt.xlabel("Composition Feature", fontsize=22, weight="bold", labelpad=10, color="black")
 plt.ylabel("Average Attention Score", fontsize=22, weight="bold", labelpad=10, color="black")
 plt.xticks(fontsize=20, rotation=90)
@@ -421,20 +400,19 @@ plt.tight_layout()
 plt.savefig("Average Attention Weights for Composition Features", dpi=600, format='jpeg')
 plt.show()
 
-## Using VIB to geneerate latent space and Inverse Design
+
+# Latent Space and Inverse Design using VIB
 latent_model = tf.keras.Model(inputs=vib_attention_model.input, 
                               outputs=vib_attention_model.get_layer('vib_layer_1').output)
-
 latent_vectors = latent_model.predict([X_composition_scaled, X_load_scaled])
 
-# Range of possible cluster numbers for the Elbow Method
 cluster_range = range(1, 11)
 wcss = [] 
 
 for k in cluster_range:
     kmeans = KMeans(n_clusters=k, random_state=42)
     kmeans.fit(latent_vectors)
-    wcss.append(kmeans.inertia_)  
+    wcss.append(kmeans.inertia_) 
 
 plt.figure(figsize=(10, 8))
 plt.plot(cluster_range, wcss, marker='o', color='b', markersize=15, linestyle='--', linewidth=2)
@@ -453,11 +431,8 @@ plt.show()
 # Dimensionality Reduction with t-SNE
 tsne = TSNE(n_components=2, random_state=42)
 latent_tsne = tsne.fit_transform(latent_vectors)
-
-# K-Means Clustering in Latent Space
 kmeans = KMeans(n_clusters=3, random_state=42)
 clusters = kmeans.fit_predict(latent_vectors)
-
 fig, ax = plt.subplots(figsize=(10, 8))
 scatter = ax.scatter(latent_tsne[:, 0], latent_tsne[:, 1], c=clusters, cmap='plasma', s=200, edgecolor='k', alpha=0.7)
 legend1 = ax.legend(*scatter.legend_elements(), title="Clusters")
@@ -473,7 +448,6 @@ for spine in ax.spines.values():
 plt.savefig("t-SNE Visualization of Latent Space with K-Means Clustering", dpi=600, format='jpeg')
 plt.show()
 
-# t-SNE with Color-Coding by Hardness
 fig, ax = plt.subplots(figsize=(12, 8))
 scatter = ax.scatter(latent_tsne[:, 0], latent_tsne[:, 1], c=y, cmap='coolwarm', s=200, edgecolor='k', alpha=0.7)
 cbar = plt.colorbar(scatter)
@@ -499,19 +473,19 @@ def sample_latent_space(num_samples_per_cluster=100, std_dev=0.5):
     sampled_latent_vectors = np.vstack(sampled_latent_vectors)
     return sampled_latent_vectors
 
-# Generate sampled latent vectors
 num_samples_per_cluster = 100
 sampled_latent_vectors = sample_latent_space(num_samples_per_cluster=num_samples_per_cluster, std_dev=0.5)
 
-# Decoder model to reconstruct new compositions
-vib_layer_name = 'vib_layer_1' 
+vib_layer_name = 'vib_layer_1'
 vib_layer_index = None
 for idx, layer in enumerate(vib_attention_model.layers):
     if layer.name == vib_layer_name:
         vib_layer_index = idx
         break
+
 if vib_layer_index is None:
     raise ValueError(f"VIB layer named '{vib_layer_name}' not found in the model.")
+
 print(f"VIB Layer Index: {vib_layer_index}")
 
 latent_dim_size = sampled_latent_vectors.shape[1]
@@ -521,58 +495,61 @@ x = latent_input
 x = tf.keras.layers.Reshape((1, latent_dim_size))(x)
 
 layers_after_vib = vib_attention_model.layers[vib_layer_index + 2:]
-
 for layer in layers_after_vib:
     if isinstance(layer, tf.keras.layers.MultiHeadAttention):
         x = layer(query=x, value=x, key=x)
     else:
         x = layer(x)
 
-decoder_model = tf.keras.Model(inputs=latent_input, outputs=x, name='Decoder_Model')
+composition_output = tf.keras.layers.Dense(49, activation='sigmoid', name="Composition_Output")(x)
+hardness_output = tf.keras.layers.Dense(1, name="Hardness_Output")(x)  # Linear output for hardness
 
-predicted_outputs = decoder_model.predict(sampled_latent_vectors)
+decoder_model = tf.keras.Model(inputs=latent_input, outputs=[composition_output, hardness_output], name='Decoder_Model')
 
-if isinstance(predicted_outputs, list) or isinstance(predicted_outputs, tuple):
-    predicted_compositions = predicted_outputs[0]
-    predicted_hardness = predicted_outputs[1].flatten()
-else:
-    predicted_compositions = predicted_outputs
-    predicted_hardness = predicted_compositions.flatten()
+predicted_compositions, predicted_hardness = decoder_model.predict(sampled_latent_vectors)
+predicted_hardness_flat = predicted_hardness.flatten()
+predicted_hardness_flat = np.abs(predicted_hardness_flat)
+print("Predicted hardness (converted to positive) shape:", predicted_hardness_flat.shape)
 
-predicted_compositions_normalized = np.apply_along_axis(lambda x: x / np.sum(x), 1, predicted_compositions)
+def stable_normalization(compositions, min_threshold=1e-3):
+    row_sums = np.sum(compositions, axis=1, keepdims=True)
+    row_sums = np.where(row_sums < min_threshold, min_threshold, row_sums)  # Apply minimum threshold
+    return compositions / row_sums
 
+predicted_compositions_normalized = stable_normalization(predicted_compositions)
 row_sums = np.sum(predicted_compositions_normalized, axis=1)
-print("Row sums after normalization (should be 1.0 for each row):", row_sums)
+print("Row sums after normalization (should be close to 1.0 for each row):", row_sums)
 
 compositions_df = pd.DataFrame(predicted_compositions_normalized, columns=[f'Element_{i+1}' for i in range(predicted_compositions_normalized.shape[1])])
-compositions_df['Predicted_Hardness'] = predicted_hardness
-compositions_df.to_csv('decoded_compositions_with_hardness.csv', index=False)
-print(f"Decoded compositions and hardness values saved to 'decoded_compositions_with_hardness.csv'")
+compositions_df['Predicted_Hardness'] = predicted_hardness_flat
+compositions_df.to_csv('sampled_compositions_with_hardness.csv', index=False)
+print(f"Compositions and hardness values saved to 'sampled_compositions_with_hardness.csv'")
 
-## Optimization of synthetic compositions
-desired_hardness = 2000
-num_new_alloys = 20
-latent_dim_size = decoder_model.input_shape[1]  # Get latent dimension size from the decoder model
+## Optimization of sampled alloy compositions for desired hardness
+min_hardness = 1500
+max_hardness = 2500
+num_new_alloys = 10
+latent_dim_size = decoder_model.input_shape[1]  
 initial_latent_vectors = 0.1 * np.random.normal(size=(num_new_alloys, latent_dim_size))
-learning_rate = 0.00001
-num_iterations = 5000
+
+learning_rate = 0.0001
+num_iterations = 10000
 
 latent_vectors_tf = tf.Variable(initial_latent_vectors, dtype=tf.float32)
 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
 
 for iteration in range(num_iterations):
     with tf.GradientTape() as tape:
-        predicted_outputs = decoder_model(latent_vectors_tf)
-        if isinstance(predicted_outputs, list) or isinstance(predicted_outputs, tuple):
-            predicted_hardness_opt = predicted_outputs[0]
-        else:
-            predicted_hardness_opt = predicted_outputs
-        loss = tf.reduce_mean(tf.square(predicted_hardness_opt - desired_hardness))
+        predicted_compositions, predicted_hardness_opt = decoder_model(latent_vectors_tf)
+        predicted_hardness_opt = tf.squeeze(predicted_hardness_opt, axis=-1)
+        lower_bound_penalty = tf.maximum(min_hardness - predicted_hardness_opt, 0.0)
+        upper_bound_penalty = tf.maximum(predicted_hardness_opt - max_hardness, 0.0)
+        target_hardness = (min_hardness + max_hardness) / 2
+        mse_loss = tf.reduce_mean(tf.square(predicted_hardness_opt - target_hardness))
+        penalty_loss = tf.reduce_mean(lower_bound_penalty + upper_bound_penalty)
+        loss = mse_loss + 10 * penalty_loss
 
     gradients = tape.gradient(loss, [latent_vectors_tf])
-    clipped_gradients = [tf.clip_by_value(g, -1.0, 1.0) for g in gradients]
-    optimizer.apply_gradients(zip(clipped_gradients, [latent_vectors_tf]))
-    
     optimizer.apply_gradients(zip(gradients, [latent_vectors_tf]))
 
     if iteration % 100 == 0 or iteration == num_iterations - 1:
@@ -580,15 +557,18 @@ for iteration in range(num_iterations):
         print(f"Iteration {iteration}: Loss = {current_loss:.4f}")
 
 optimized_latent_vectors = latent_vectors_tf.numpy()
-optimized_predicted_outputs = decoder_model.predict(optimized_latent_vectors)
-if isinstance(optimized_predicted_outputs, list) or isinstance(optimized_predicted_outputs, tuple):
-    optimized_predicted_hardness = optimized_predicted_outputs[0].flatten()
-else:
-    optimized_predicted_hardness = optimized_predicted_outputs.flatten()
+optimized_compositions, optimized_hardness = decoder_model.predict(latent_vectors_tf)
+optimized_hardness = np.squeeze(optimized_hardness) 
+valid_indices = (optimized_hardness >= min_hardness) & (optimized_hardness <= max_hardness)
+filtered_compositions = optimized_compositions[valid_indices]
+filtered_hardness = optimized_hardness[valid_indices]
+filtered_compositions_normalized = stable_normalization(filtered_compositions)
 
-print(f"Optimized predicted hardness values:\n{optimized_predicted_hardness}")
+compositions_df = pd.DataFrame(filtered_compositions_normalized, columns=[f'Element_{i+1}' for i in range(filtered_compositions_normalized.shape[1])])
+compositions_df['Predicted_Hardness'] = filtered_hardness
+compositions_df.to_csv('filtered_compositions_with_hardness.csv', index=False)
+print(f"Filtered compositions and hardness values saved to 'filtered_compositions_with_hardness.csv'")
 
-# Combine all latent vectors for visualization
 all_latent_vectors = np.vstack((latent_vectors, sampled_latent_vectors, optimized_latent_vectors))
 all_labels = np.array(
     ['Original'] * latent_vectors.shape[0] +
@@ -596,19 +576,26 @@ all_labels = np.array(
     ['Optimized'] * optimized_latent_vectors.shape[0]
 )
 
-# Predict hardness values for all vectors
 original_predicted_hardness = y.to_numpy()
 sampled_predicted_hardness = predicted_hardness.flatten()
-optimized_predicted_hardness = optimized_predicted_outputs.flatten()
+optimized_predicted_hardness = optimized_hardness.flatten()
 
-# Combine all hardness values
+print("Original latent vectors:", latent_vectors.shape)
+print("Sampled latent vectors:", sampled_latent_vectors.shape)
+print("Optimized latent vectors:", optimized_latent_vectors.shape)
+
+print("Original hardness values:", original_predicted_hardness.shape)
+print("Sampled hardness values:", sampled_predicted_hardness.shape)
+print("Optimized hardness values:", optimized_predicted_hardness.shape)
+
 all_hardness_values = np.concatenate((
-    original_predicted_hardness,
-    sampled_predicted_hardness,
-    optimized_predicted_hardness
+    original_predicted_hardness[:latent_vectors.shape[0]],  
+    sampled_predicted_hardness[:sampled_latent_vectors.shape[0]], 
+    optimized_predicted_hardness[:optimized_latent_vectors.shape[0]]  
 ))
 
-# Apply t-SNE to all latent vectors
+print("All latent vectors shape:", all_latent_vectors.shape)
+print("All hardness values shape:", all_hardness_values.shape)
 tsne = TSNE(n_components=2, random_state=42)
 latent_tsne = tsne.fit_transform(all_latent_vectors)
 print("latent_tsne shape:", latent_tsne.shape)
@@ -621,48 +608,47 @@ print("sampled_mask sum:", np.sum(sampled_mask))
 print("optimized_mask sum:", np.sum(optimized_mask))
 
 # Visualization
-fig, ax = plt.subplots(figsize=(12, 9))
-
-# Scatter plot for original data points
+fig, ax = plt.subplots(figsize=(12, 8))
+norm = plt.Normalize(vmin=all_hardness_values.min(), vmax=all_hardness_values.max())
 scatter_original = ax.scatter(
     latent_tsne[original_mask, 0],
     latent_tsne[original_mask, 1],
     c=all_hardness_values[original_mask],
     cmap='coolwarm',
+    norm=norm,  
     s=180,
     marker='o',
     edgecolor='k',
-    alpha=0.8,
+    alpha=0.6,
     label='Original Alloys'
 )
 
-# Scatter plot for sampled data points
 scatter_sampled = ax.scatter(
     latent_tsne[sampled_mask, 0],
     latent_tsne[sampled_mask, 1],
     c=all_hardness_values[sampled_mask],
     cmap='coolwarm',
-    s=150,
-    marker='p',
+    norm=norm,  
+    s=180,
+    marker='.',
     edgecolor='k',
-    alpha=0.6,
+    alpha=1.0,
     label='Sampled Alloys'
 )
 
-# Scatter plot for optimized latent vectors
 scatter_optimized = ax.scatter(
     latent_tsne[optimized_mask, 0],
     latent_tsne[optimized_mask, 1],
     c=all_hardness_values[optimized_mask],
     cmap='coolwarm',
-    s=150,
+    norm=norm,  
+    s=200,
     marker='*',
     edgecolor='k',
-    alpha=0.6,
+    alpha=1.0,
     label='Optimized Alloys'
 )
 
-# Colorbar representing hardness values
 cbar = plt.colorbar(scatter_optimized)
 cbar.set_label('Predicted Hardness', fontsize=22, weight='bold')
 ax.set_xlabel('t-SNE Component 1', fontsize=22, weight='bold')
@@ -676,10 +662,9 @@ for spine in ax.spines.values():
     spine.set_linewidth(2)
 plt.tight_layout()
 plt.savefig("t-SNE Visualization of Latent Space with Inverse Design Samples", dpi=600, format='jpeg')
-plt.show()
 
 
-##Integrated gradients for the VIB+Attention NNs
+## Obtain Integrated Gradients for VIB+Attention NN Model
 def integrated_gradients(model, baseline, inputs, target_output_idx=None, steps=200):
     """
     Compute Integrated Gradients for a model and inputs.
@@ -694,7 +679,6 @@ def integrated_gradients(model, baseline, inputs, target_output_idx=None, steps=
     Returns:
     - Integrated gradients for each input tensor.
     """
-
     scaled_inputs_comp = [baseline[0] + (float(i) / steps) * (inputs[0] - baseline[0]) for i in range(steps + 1)]
     scaled_inputs_load = [baseline[1] + (float(i) / steps) * (inputs[1] - baseline[1]) for i in range(steps + 1)]
     
@@ -712,21 +696,22 @@ def integrated_gradients(model, baseline, inputs, target_output_idx=None, steps=
     avg_gradients_load = tf.reduce_mean([grad[1] for grad in gradients], axis=0)
     integrated_grads_comp = (inputs[0] - baseline[0]) * avg_gradients_comp
     integrated_grads_load = (inputs[1] - baseline[1]) * avg_gradients_load
+
     return integrated_grads_comp, integrated_grads_load
 
+# Baseline: zeros
 comp_baseline = tf.zeros(shape=(1, X_comp_test.shape[1]))
 load_baseline = tf.zeros(shape=(1, X_load_test.shape[1]))
 sample_idx = 0 
 comp_input = tf.expand_dims(X_comp_test[sample_idx], axis=0)
 load_input = tf.expand_dims(X_load_test[sample_idx], axis=0)
+
 baseline_inputs = [comp_baseline, load_baseline]
 sample_inputs = [comp_input, load_input]
-
 comp_input_tf = tf.cast(comp_input, tf.float32)
 load_input_tf = tf.cast(load_input, tf.float32)
 comp_baseline_tf = tf.cast(comp_baseline, tf.float32)
 load_baseline_tf = tf.cast(load_baseline, tf.float32)
-
 ig_comp = integrated_gradients(vib_attention_model, [comp_baseline_tf, load_baseline_tf],
                                [comp_input_tf, load_input_tf])
 
@@ -734,7 +719,7 @@ ig_comp_values = ig_comp[0].numpy().flatten()
 feature_names = ['Ag', 'Al', 'Au', 'B', 'Be', 'C', 'Ca', 'Ce', 'Co', 'Cr', 'Cu', 'Dy', 'Er', 'Fe', 'Ga', 'Gd', 'Hf', 'Ho', 'In', 'La', 'Li', 'Lu', 'Mg', 'Mn', 'Mo', 'Nb', 'Nd', 'Ni', 'P', 'Pb', 'Pd', 'Pr', 'Pt', 'Re', 'Sc', 'Si', 'Sm', 'Sn', 'Sr', 'Ta', 'Tb', 'Ti', 'Tm', 'V', 'W', 'Y', 'Yb', 'Zn', 'Zr']
 
 colors = sns.color_palette("mako", len(ig_comp_values))
-plt.figure(figsize=(20, 14))
+plt.figure(figsize=(16, 8))
 bars = plt.bar(feature_names, ig_comp_values, color=colors, edgecolor='black', linewidth=1.5)
 plt.xlabel('Compositional Constituent', fontsize=28, weight='bold', labelpad=10, color='black')
 plt.ylabel('Attribution Value', fontsize=28, weight='bold', labelpad=10, color='black')
@@ -743,16 +728,15 @@ plt.yticks(fontsize=26)
 plt.grid(False)
 for spine in plt.gca().spines.values():
     spine.set_edgecolor('black')
-    spine.set_linewidth(3.5)
+    spine.set_linewidth(2)
 plt.tight_layout()
 plt.savefig("Integrated Gradients for Composition Features", dpi=600, format='jpeg')
 plt.show()
 
-## Reliability Diagram
+## Reliability and Calliberation Curves
 confidence_levels = np.linspace(0, 1.0, 10)
 coverage_probabilities = []
 
-# Compute coverage probabilities for each confidence level
 for conf_level in confidence_levels:
     lower_bound = y_pred_mean - conf_level * y_pred_std
     upper_bound = y_pred_mean + conf_level * y_pred_std
@@ -770,7 +754,7 @@ plt.legend()
 plt.savefig("Reliability Diagram for Prediction Calibration", dpi=600, format='jpeg')
 plt.show()
 
-## Calibration Curve
+
 pred_bins = np.linspace(y_pred_mean.min(), y_pred_mean.max(), num=10)
 bin_indices = np.digitize(y_pred_mean, pred_bins)
 bin_centers = (pred_bins[:-1] + pred_bins[1:]) / 2
