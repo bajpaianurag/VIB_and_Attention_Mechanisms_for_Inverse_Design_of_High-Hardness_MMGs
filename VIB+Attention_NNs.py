@@ -608,7 +608,7 @@ for iteration in range(num_iterations):
         predicted_hardness_opt = tf.squeeze(predicted_hardness_opt, axis=-1)
         lower_bound_penalty = tf.maximum(min_hardness - predicted_hardness_opt, 0.0)
         upper_bound_penalty = tf.maximum(predicted_hardness_opt - max_hardness, 0.0)
-        target_hardness = (min_hardness + max_hardness) / 2
+        target_hardness = max_hardness
         mse_loss = tf.reduce_mean(tf.square(predicted_hardness_opt - target_hardness))
         penalty_loss = tf.reduce_mean(lower_bound_penalty + upper_bound_penalty)
         loss = mse_loss + 10 * penalty_loss
