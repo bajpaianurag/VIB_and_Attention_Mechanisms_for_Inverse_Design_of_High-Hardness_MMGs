@@ -28,7 +28,7 @@ Model Interpretability:
 
 Integrated Gradients (IG): This method was used to understand feature attributions, providing a measure of how much each input feature contributes to the model's output.
 
-Attention Visualization: Attention scores were visualized in heatmaps and bar plots, showing the importance of each feature across samples.
+Attention Visualization: Attention scores were visualized in bar plot, showing the importance of each feature across samples.
 
 
 Inverse Design for New Alloy Compositions:
