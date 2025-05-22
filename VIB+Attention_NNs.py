@@ -194,54 +194,29 @@ def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16,
     x = layers.Dropout(0.3)(x)
 
     output = layers.Dense(1, name="Output_Layer")(x)
+    model = models.Model(inputs=[comp_input, load_input], outputs=output, name="VIB_Attention_Model")
 
-    model = models.Model(inputs=[comp_input, load_input], outputs=[output, comp_attention_scores, load_attention_scores],
-                         name="VIB_Attention_Model")
     return model
 
 vib_attention_model = build_vib_attention_model(X_comp_train.shape[1], X_load_train.shape[1])
 
 # Adaptive Beta Callback to adjust beta dynamically based on KL divergence
-class AdaptiveBetaCallback(Callback):
-    def __init__(self, vib_layer, target_kl=0.001, beta_adjustment_factor=1.05):
-        super(AdaptiveBetaCallback, self).__init__()
+class AdaptiveBetaCallback(tf.keras.callbacks.Callback):
+    def __init__(self, vib_layer, target_kl=0.1, beta_adjustment_factor=1.05):
+        super().__init__()
         self.vib_layer = vib_layer
         self.target_kl = target_kl
         self.beta_adjustment_factor = beta_adjustment_factor
 
     def on_epoch_end(self, epoch, logs=None):
-        kl_loss = self.vib_layer.losses[-1] if self.vib_layer.losses else 0
+        kl_loss = self.vib_layer.kl_loss.numpy()
         if kl_loss < self.target_kl:
             new_beta = self.vib_layer.beta * self.beta_adjustment_factor
         else:
             new_beta = self.vib_layer.beta / self.beta_adjustment_factor
         self.vib_layer.beta.assign(new_beta)
         print(f"Epoch {epoch + 1}: KL Loss = {kl_loss:.4f}, Updated Beta = {self.vib_layer.beta.numpy():.6f}")
-        
-        comp_attention_scores = logs.get('comp_attention_scores')
-        load_attention_scores = logs.get('load_attention_scores')
-    
-        if comp_attention_scores is None or load_attention_scores is None:
-            print("Warning: Attention scores are missing in logs.")
-            return
-        
-        avg_comp_attention = np.mean(comp_attention_scores, axis=0)
-        avg_load_attention = np.mean(load_attention_scores, axis=0)
-        avg_comp_attention = avg_comp_attention.flatten() if avg_comp_attention.ndim > 1 else avg_comp_attention
-        avg_load_attention = avg_load_attention.flatten() if avg_load_attention.ndim > 1 else avg_load_attention
-    
-        all_attention_scores = np.concatenate((avg_comp_attention, avg_load_attention), axis=0)
-    
-        with open(self.output_file, mode='a', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow([epoch + 1] + all_attention_scores.tolist())
 
-def adjust_beta(vib_layer, kl_loss, target_kl=0.1, beta_adjustment_factor=1.05):
-    if kl_loss < target_kl:
-        new_beta = vib_layer.beta * beta_adjustment_factor
-    else:
-        new_beta = vib_layer.beta / beta_adjustment_factor
-    vib_layer.beta.assign(new_beta)
 
 vib_layer = None
 for layer in vib_attention_model.layers:
@@ -253,27 +228,12 @@ if vib_layer is None:
 
 vib_attention_model.compile(
     optimizer="adam",
-    loss={
-        "Output_Layer": tf.keras.losses.MeanSquaredError(),
-        "Comp_Attention": lambda y_true, y_pred: 0.0,  
-        "Load_Attention": lambda y_true, y_pred: 0.0,  
-    },
-    loss_weights={
-        "Output_Layer": 1.0,
-        "Comp_Attention": 0.0,
-        "Load_Attention": 0.0, 
-    }
+    loss=tf.keras.losses.MeanSquaredError()
 )
-
-# Create dummy targets for the attention outputs
-dummy_comp_train = np.zeros((X_comp_train.shape[0], X_comp_train.shape[1]))
-dummy_load_train = np.zeros((X_comp_train.shape[0], 1))
-
-dummy_comp_val = np.zeros((X_comp_val.shape[0], X_comp_val.shape[1]))
-dummy_load_val = np.zeros((X_comp_val.shape[0], 1))
 
 # Model Training
 attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
+adaptive_beta_callback = AdaptiveBetaCallback(vib_layer)
 train_losses = []
 val_losses = []
 beta_values = []
@@ -281,34 +241,19 @@ beta_values = []
 epochs = 500
 
 for epoch in range(epochs):
-    # Train for 1 epoch
     history = vib_attention_model.fit(
         [X_comp_train, X_load_train],
-        {
-            "Output_Layer": y_train,
-            "Comp_Attention": dummy_comp_train,
-            "Load_Attention": dummy_load_train,
-        },
-        validation_data=(
-            [X_comp_val, X_load_val],
-            {
-                "Output_Layer": y_val,
-                "Comp_Attention": dummy_comp_val,
-                "Load_Attention": dummy_load_val,
-            }
-        ),
-        epochs=5,
-        callbacks=[attention_logger],
+        y_train,
+        validation_data=([X_comp_val, X_load_val], y_val),
+        epochs=2,
+        callbacks=[attention_logger, adaptive_beta_callback],
         verbose=1
     )
 
     train_losses.append(history.history['loss'][0])
     val_losses.append(history.history['val_loss'][0])
 
-    # Adjust beta using KL loss from VIB layer
-    kl_loss = vib_layer.kl_loss.numpy()
-    adjust_beta(vib_layer, kl_loss)
-    beta_values.append(vib_layer.beta.numpy())
+
 
     print(f"Epoch {epoch + 1}/{epochs} - KL Loss: {kl_loss:.4f}, Updated Beta: {vib_layer.beta.numpy():.6f}")
 
@@ -346,6 +291,37 @@ plt.tight_layout()
 plt.savefig("beta Value Dynamics During Training", dpi=600, format='jpeg')
 plt.show()
 
+# Define attention extractor model
+comp_input_layer = vib_attention_model.get_layer("Composition_Input").input
+load_input_layer = vib_attention_model.get_layer("Load_Input").input
+
+comp_attention_layer_output = vib_attention_model.get_layer("Comp_Attention").output[1]
+load_attention_layer_output = vib_attention_model.get_layer("Load_Attention").output[1]
+
+attention_extractor_model = tf.keras.Model(
+    inputs=[comp_input_layer, load_input_layer],
+    outputs=[comp_attention_layer_output, load_attention_layer_output],
+    name="Attention_Extractor"
+)
+
+def bootstrap_rmse_ci(y_true, y_pred_samples, n_bootstrap=1000, ci=0.95):
+    n = len(y_true)
+    rmse_list = []
+
+    for _ in range(n_bootstrap):
+        idx = np.random.choice(n, n, replace=True)
+        y_true_sample = y_true[idx]
+        y_pred_sample = y_pred_samples[:, idx].mean(axis=0)
+        rmse_sample = np.sqrt(mean_squared_error(y_true_sample, y_pred_sample))
+        rmse_list.append(rmse_sample)
+
+    rmse_array = np.array(rmse_list)
+    lower = np.percentile(rmse_array, ((1 - ci) / 2) * 100)
+    upper = np.percentile(rmse_array, (1 - (1 - ci) / 2) * 100)
+    rmse_mean = np.mean(rmse_array)
+
+    return rmse_mean, lower, upper
+
 # Monte-Carlo dropout with uncertainty quantification
 def mc_dropout_predictions(model, X_comp, X_load, num_samples=100):
     predictions = []
@@ -370,7 +346,7 @@ def mc_dropout_predictions(model, X_comp, X_load, num_samples=100):
     comp_attention_scores_array = np.array(comp_attention_scores_list)
     load_attention_scores_array = np.array(load_attention_scores_list)
     y_pred_mean = predictions.mean(axis=0)
-    y_pred_std = predictions.std(axis=0)
+    y_pred_std = predictions.std(axis=0) 
     comp_attention_scores_mean = comp_attention_scores_array.mean(axis=0)
     load_attention_scores_mean = load_attention_scores_array.mean(axis=0)
     return y_pred_mean, y_pred_std, comp_attention_scores_mean, load_attention_scores_mean
@@ -384,6 +360,15 @@ if len(y_test) != len(y_pred_mean):
     y_test = y_test[:min_len]
     y_pred_mean = y_pred_mean[:min_len]
     y_pred_std = y_pred_std[:min_len]
+
+rmse_mean, rmse_lower, rmse_upper = bootstrap_rmse_ci(
+    y_true=np.array(y_test), 
+    y_pred_samples=predictions,
+    n_bootstrap=1000,
+    ci=0.95
+)
+
+print(f"Test RMSE: {rmse_mean:.4f} (95% CI: [{rmse_lower:.4f}, {rmse_upper:.4f}])")
 
 # Plot Predicted vs Actual Hardness with Uncertainty Intervals
 fig, ax = plt.subplots(figsize=(10, 8))
@@ -416,6 +401,20 @@ for spine in ax.spines.values():
 plt.savefig("Distribution of Prediction Uncertainty (Standard Deviation)", dpi=600, format='jpeg')
 plt.show()
 
+# Frequrcy vs. RMSE
+plt.figure(figsize=(10,6))
+sns.histplot(rmse_list, kde=True, bins=30, color='skyblue')
+plt.axvline(rmse_mean, color='blue', linestyle='--', label='Mean RMSE')
+plt.axvline(rmse_lower, color='red', linestyle='--', label='Lower CI')
+plt.axvline(rmse_upper, color='green', linestyle='--', label='Upper CI')
+plt.xlabel("RMSE")
+plt.ylabel("Frequency")
+plt.title("Bootstrap Distribution of RMSE")
+plt.legend()
+plt.tight_layout()
+plt.show()
+
+
 # Calculate additional metrics for evaluation
 rmse = np.sqrt(mean_squared_error(y_test, y_pred_mean))
 mae = mean_absolute_error(y_test, y_pred_mean)
@@ -427,8 +426,8 @@ print(f"Test MAE: {mae:.4f}")
 print(f"Test MAPE: {mape:.4f}")
 print(f"Test R² Score: {r2:.4f}")
 
-#Obtain Attention Scores from VIBANN
-_, comp_attention_scores_final, load_attention_scores_final = vib_attention_model.predict([X_comp_test, X_load_test])
+# Obtain Attention Scores from VIBANN
+comp_attention_scores_final, load_attention_scores_final = attention_extractor_model.predict([X_comp_test, X_load_test])
 comp_attention_scores_final = comp_attention_scores_final[:, :56]
 
 avg_comp_attention_scores = np.mean(comp_attention_scores_final, axis=0)
@@ -941,12 +940,7 @@ predicted_hardness_flat = predicted_hardness.flatten()
 predicted_hardness_flat = np.abs(predicted_hardness_flat)
 print("Predicted hardness (converted to positive) shape:", predicted_hardness_flat.shape)
 
-def stable_normalization(compositions, min_threshold=1e-3):
-    row_sums = np.sum(compositions, axis=1, keepdims=True)
-    row_sums = np.where(row_sums < min_threshold, min_threshold, row_sums)
-    return compositions / row_sums
-
-predicted_compositions_normalized = stable_normalization(predicted_compositions)
+predicted_compositions_normalized = predicted_compositions
 
 row_sums = np.sum(predicted_compositions_normalized, axis=1)
 print("Row sums after normalization (should be close to 1.0 for each row):", row_sums)
@@ -1188,8 +1182,11 @@ def integrated_gradients(model, baseline, inputs, target_output_idx=None, steps=
 
     return integrated_grads_comp, integrated_grads_load
 
-comp_baseline = tf.zeros((1, X_comp_test.shape[1]), dtype=tf.float32)
-load_baseline = tf.zeros((1, X_load_test.shape[1]), dtype=tf.float32)
+comp_baseline_np = np.mean(X_comp_train, axis=0, keepdims=True)
+load_baseline_np = np.mean(X_load_train, axis=0, keepdims=True)
+
+comp_baseline = tf.constant(comp_baseline_np, dtype=tf.float32)
+load_baseline = tf.constant(load_baseline_np, dtype=tf.float32)
 
 sample_idx = 0 
 
