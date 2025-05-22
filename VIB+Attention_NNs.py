@@ -143,15 +143,30 @@ class FeatureWiseAttention(layers.Layer):
         weighted_inputs = attention_scores * inputs
         return weighted_inputs, attention_scores
 
-class AttentionScoreLogger(Callback):
+class AttentionScoreLogger(tf.keras.callbacks.Callback):
     def __init__(self, comp_feature_count, output_file='attention_scores.csv'):
-        super(AttentionScoreLogger, self).__init__()
+        super().__init__()
         self.comp_feature_count = comp_feature_count
         self.output_file = output_file
         with open(self.output_file, mode='w', newline='') as file:
             writer = csv.writer(file)
             header = [f"Comp_Feature_{i+1}" for i in range(comp_feature_count)] + ["Load_Feature"]
             writer.writerow(["Epoch"] + header)
+
+    def on_epoch_end(self, epoch, logs=None):
+        # Get batch attention scores
+        comp_attention_scores, load_attention_scores = self.model.predict(
+            [X_comp_train, X_load_train], verbose=0
+        )[1:3]
+
+        avg_comp_attention = np.mean(comp_attention_scores, axis=0).flatten()
+        avg_load_attention = np.mean(load_attention_scores, axis=0).flatten()
+
+        all_attention_scores = np.concatenate((avg_comp_attention, avg_load_attention), axis=0)
+
+        with open(self.output_file, mode='a', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow([epoch + 1] + all_attention_scores.tolist())
     
 # Model Definition
 def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16, attention_heads=4):
@@ -168,7 +183,7 @@ def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16,
     x_load_attention, load_attention_scores = FeatureWiseAttention(name="Load_Attention")(x_load)
 
     combined = layers.Concatenate()([x_comp_attention, x_load_attention])
-    vib_output = VIBLayer(latent_dim=latent_dim)(combined)
+    vib_output = VIBLayer(latent_dim=latent_dim, name="vib_layer")(combined)
 
     reshaped_vib = layers.Reshape((1, latent_dim))(vib_output)
     attention_output = layers.MultiHeadAttention(num_heads=attention_heads, key_dim=latent_dim)(reshaped_vib, reshaped_vib)
@@ -188,7 +203,7 @@ vib_attention_model = build_vib_attention_model(X_comp_train.shape[1], X_load_tr
 
 # Adaptive Beta Callback to adjust beta dynamically based on KL divergence
 class AdaptiveBetaCallback(Callback):
-    def __init__(self, vib_layer, target_kl=0.1, beta_adjustment_factor=1.05):
+    def __init__(self, vib_layer, target_kl=0.001, beta_adjustment_factor=1.05):
         super(AdaptiveBetaCallback, self).__init__()
         self.vib_layer = vib_layer
         self.target_kl = target_kl
@@ -258,13 +273,15 @@ dummy_comp_val = np.zeros((X_comp_val.shape[0], X_comp_val.shape[1]))
 dummy_load_val = np.zeros((X_comp_val.shape[0], 1))
 
 # Model Training
+attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
 train_losses = []
 val_losses = []
 beta_values = []
 
-attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
 epochs = 500
+
 for epoch in range(epochs):
+    # Train for 1 epoch
     history = vib_attention_model.fit(
         [X_comp_train, X_load_train],
         {
@@ -280,15 +297,19 @@ for epoch in range(epochs):
                 "Load_Attention": dummy_load_val,
             }
         ),
-        epochs=2,
+        epochs=5,
         callbacks=[attention_logger],
         verbose=1
     )
+
     train_losses.append(history.history['loss'][0])
     val_losses.append(history.history['val_loss'][0])
+
+    # Adjust beta using KL loss from VIB layer
     kl_loss = vib_layer.kl_loss.numpy()
     adjust_beta(vib_layer, kl_loss)
     beta_values.append(vib_layer.beta.numpy())
+
     print(f"Epoch {epoch + 1}/{epochs} - KL Loss: {kl_loss:.4f}, Updated Beta: {vib_layer.beta.numpy():.6f}")
 
 # Plot Training and Validation Loss
@@ -905,7 +926,7 @@ for layer in layers_after_vib:
         x = layer(x)
 
 x = tf.keras.layers.Flatten()(x)
-composition_output = tf.keras.layers.Dense(56, activation='sigmoid', name="Composition_Output")(x)
+composition_output = tf.keras.layers.Dense(56, activation='softmax', name="Composition_Output")(x)
 hardness_output = tf.keras.layers.Dense(1, name="Hardness_Output")(x)
 
 decoder_model = tf.keras.Model(inputs=latent_input, outputs=[composition_output, hardness_output], name='Decoder_Model')
@@ -1209,7 +1230,7 @@ plt.tight_layout()
 plt.savefig("Integrated Gradients for Composition Features", dpi=600, format='jpeg')
 plt.show()
 
-#Calliberation Analysis
+## Calliberation Analysis
 confidence_levels = np.linspace(0, 1.0, 10)
 coverage_probabilities = []
 
