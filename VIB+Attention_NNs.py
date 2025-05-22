@@ -719,10 +719,13 @@ plt.savefig("Hardness Distribution Across Clusters", dpi=600)
 plt.show()
 
 # Fit a GMM on the latent vectors
-gmm = GaussianMixture(n_components=3, covariance_type='full', random_state=1)
-gmm.fit(latent_vectors)
+top_percentile = 95
+high_idx = np.where(y >= np.percentile(y, top_percentile))[0]
+high_latent_vectors = latent_vectors[high_idx]
+gmm = GaussianMixture(n_components=2, covariance_type='full', random_state=1)
+gmm.fit(high_latent_vectors)
 
-# Fit a GMM on the 2D latent space (for visualization only)
+# Fit a separate GMM on the 2D latent space (for visualization only)
 gmm_temp = GaussianMixture(n_components=3, covariance_type='full', random_state=1)
 gmm_temp.fit(latent_tsne)
 
