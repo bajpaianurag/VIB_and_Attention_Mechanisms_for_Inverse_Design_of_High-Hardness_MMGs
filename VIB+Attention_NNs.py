@@ -46,6 +46,7 @@ composition_cols = [col for col in data.columns if col not in ['Load', 'HV']]
 load_col = 'Load'
 target_col = 'HV'
 
+
 # Hardness Distribution Plot
 plt.style.use('default')
 sns.set_context("talk")
@@ -120,8 +121,8 @@ if skewness > 0.5:
 else:
     print("No significant skewness detected; proceeding without transformation.")
 
-# The VIBANN Architechture
 
+## The VIBANN Architechture
 # VIB Layer
 class VIBLayer(layers.Layer):
     def __init__(self, latent_dim=16, **kwargs):
@@ -450,6 +451,7 @@ plt.legend()
 plt.tight_layout()
 plt.show()
 
+
 # Calculate additional metrics for evaluation
 rmse = np.sqrt(mean_squared_error(y_test, y_pred_mean))
 mae = mean_absolute_error(y_test, y_pred_mean)
@@ -626,7 +628,6 @@ plt.savefig("Calibration Curve for Predicted Hardness", dpi=600, format='jpeg')
 plt.show()
 
 
-
 # VIB Latent Space Visualization
 latent_model = tf.keras.Model(inputs=vib_attention_model.input, 
                               outputs=vib_attention_model.get_layer('vib_layer').output)
@@ -656,7 +657,6 @@ for spine in ax.spines.values():
 plt.savefig("Elbow Method for Optimal Number of Clusters", dpi=600, format='jpeg')
 plt.show()
 
-
 # Dimensionality Reduction with t-SNE
 tsne = TSNE(n_components=2, random_state=42)
 latent_tsne = tsne.fit_transform(latent_vectors)
@@ -682,7 +682,6 @@ for spine in ax.spines.values():
 plt.savefig("t-SNE Visualization of Latent Space with K-Means Clustering", dpi=600, format='jpeg')
 plt.show()
 
-
 # Identify clusters
 unique_clusters = np.unique(cluster_labels)
 print(f"Found {len(unique_clusters)} clusters:", unique_clusters)
@@ -704,7 +703,6 @@ for spine in ax.spines.values():
 plt.savefig("t-SNE Visualization of Latent Space (Color-Coded by Hardness)", dpi=600, format='jpeg')
 plt.show()
 
-
 # Plot hardness distributions across clusters
 plt.figure(figsize=(10, 6))
 sns.boxplot(x='Cluster_Label', y='HV', data=data, palette='plasma')
@@ -720,11 +718,9 @@ plt.tight_layout()
 plt.savefig("Hardness Distribution Across Clusters", dpi=600)
 plt.show()
 
-
 # Fit a GMM on the latent vectors
 gmm = GaussianMixture(n_components=3, covariance_type='full', random_state=1)
 gmm.fit(latent_vectors)
-
 
 # Fit a GMM on the 2D latent space (for visualization only)
 gmm_temp = GaussianMixture(n_components=3, covariance_type='full', random_state=1)
@@ -735,7 +731,6 @@ y_temp = np.linspace(latent_tsne[:, 1].min() - 1, latent_tsne[:, 1].max() + 1, 1
 X_temp, Y_temp = np.meshgrid(x_temp, y_temp)
 grid_points_temp = np.c_[X_temp.ravel(), Y_temp.ravel()]
 
-# Compute the log likelihood of each grid point
 log_likelihood_temp = (gmm_temp.score_samples(grid_points_temp))
 Z_temp = log_likelihood_temp.reshape(X_temp.shape)
 
@@ -983,7 +978,7 @@ plt.tight_layout()
 plt.show()
 
 
-# Inverse Design of ultra high hardness alloys
+# Inverse Design of ultra-high hardness alloys
 cluster_0_mean = gmm.means_[0]
 cluster_0_cov = gmm.covariances_[0]
 
