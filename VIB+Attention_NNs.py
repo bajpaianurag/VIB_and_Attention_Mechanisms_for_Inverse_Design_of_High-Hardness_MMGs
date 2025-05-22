@@ -194,7 +194,9 @@ def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16,
     x = layers.Dropout(0.3)(x)
 
     output = layers.Dense(1, name="Output_Layer")(x)
-    model = models.Model(inputs=[comp_input, load_input], outputs=output, name="VIB_Attention_Model")
+    model = models.Model(inputs=[comp_input, load_input],
+                     outputs=[output, comp_attention_scores, load_attention_scores],
+                     name="VIB_Attention_Model")
 
     return model
 
@@ -252,10 +254,9 @@ for epoch in range(epochs):
 
     train_losses.append(history.history['loss'][0])
     val_losses.append(history.history['val_loss'][0])
+    beta_values.append(vib_layer.beta.numpy())
 
-
-
-    print(f"Epoch {epoch + 1}/{epochs} - KL Loss: {kl_loss:.4f}, Updated Beta: {vib_layer.beta.numpy():.6f}")
+    print(f"Epoch {epoch + 1}/{epochs} - KL Loss: {vib_layer.kl_loss.numpy():.4f}, Updated Beta: {vib_layer.beta.numpy():.6f}")
 
 # Plot Training and Validation Loss
 fig, ax = plt.subplots(figsize=(10, 8))
@@ -325,8 +326,6 @@ def bootstrap_rmse_ci(y_true, y_pred_samples, n_bootstrap=1000, ci=0.95):
 # Monte-Carlo dropout with uncertainty quantification
 def mc_dropout_predictions(model, X_comp, X_load, num_samples=100):
     predictions = []
-    comp_attention_scores_list = []
-    load_attention_scores_list = []
 
     @tf.function
     def predict_with_dropout(comp_input, load_input):
@@ -334,26 +333,24 @@ def mc_dropout_predictions(model, X_comp, X_load, num_samples=100):
 
     for _ in range(num_samples):
         outputs = predict_with_dropout(X_comp, X_load)
-        y_pred = outputs[0]
-        comp_attention_scores = outputs[1]
-        load_attention_scores = outputs[2]
-
+        y_pred = outputs
         predictions.append(y_pred.numpy().flatten())
-        comp_attention_scores_list.append(comp_attention_scores.numpy())
-        load_attention_scores_list.append(load_attention_scores.numpy())
 
     predictions = np.array(predictions)
-    comp_attention_scores_array = np.array(comp_attention_scores_list)
-    load_attention_scores_array = np.array(load_attention_scores_list)
     y_pred_mean = predictions.mean(axis=0)
     y_pred_std = predictions.std(axis=0) 
-    comp_attention_scores_mean = comp_attention_scores_array.mean(axis=0)
-    load_attention_scores_mean = load_attention_scores_array.mean(axis=0)
-    return y_pred_mean, y_pred_std, comp_attention_scores_mean, load_attention_scores_mean
+    return y_pred_mean, y_pred_std
 
 # Make predictions on the test set using MC Dropout
-y_pred_mean, y_pred_std, comp_attention_scores_test, load_attention_scores_test = mc_dropout_predictions(
-    vib_attention_model, X_comp_test, X_load_test)
+predictions = []
+for _ in range(100):
+    y_pred_sample, _ = mc_dropout_predictions(vib_attention_model, X_comp_test, X_load_test, num_samples=1)
+    predictions.append(y_pred_sample)
+
+predictions = np.array(predictions)
+y_pred_mean = predictions.mean(axis=0)
+y_pred_std = predictions.std(axis=0)
+
 
 if len(y_test) != len(y_pred_mean):
     min_len = min(len(y_test), len(y_pred_mean))
@@ -432,7 +429,7 @@ comp_attention_scores_final = comp_attention_scores_final[:, :56]
 
 avg_comp_attention_scores = np.mean(comp_attention_scores_final, axis=0)
 
-feature_names = ['Ag', 'Al', 'Au', 'B', 'Ba', 'Be', 'Bi', 'C', 'Ca', 'Ce', 'Co', 'Cr', 'Cu', 'Dy', 'Er', 'Fe', 'Ga', 'Gd', 'Ge', 'Hf', 'Ho', 'In', 'Ir', 'La', 'Li', 'Lu', 'Mg', 'Mn', 'Mo', 'Nb', 'Nd', 'Ni', 'P', 'Pb', 'Pd', 'Pr', 'Pt', 'Re', 'Rh', 'Ru', 'Sc', 'Si', 'Sm', 'Sn', 'Sr', 'Ta', 'Tb', 'Ti', 'Tm', 'U', 'V', 'W', 'Y', 'Yb', 'Zn', 'Zr']
+feature_names = composition_cols
 
 plt.figure(figsize=(14, 6))
 sns.barplot(x=feature_names, y=avg_comp_attention_scores, palette="viridis")
@@ -452,7 +449,6 @@ plt.show()
 
 
 # Latent Space Construction Visualization
-
 latent_model = tf.keras.Model(inputs=vib_attention_model.input, 
                               outputs=vib_attention_model.get_layer('vib_layer').output)
 
@@ -1208,7 +1204,7 @@ ig_comp = integrated_gradients(vib_attention_model, [comp_baseline_tf, load_base
                                [comp_input_tf, load_input_tf])
 
 ig_comp_values = ig_comp[0].numpy().flatten()
-feature_names = ['Ag','Al','Au','B','Ba','Be','Bi','C','Ca','Ce','Co','Cr','Cu','Dy','Er','Fe','Ga','Gd','Ge','Hf','Ho','In','Ir','La','Li','Lu','Mg','Mn','Mo','Nb','Nd','Ni','P','Pb','Pd','Pr','Pt','Re','Rh','Ru','Sc','Si','Sm','Sn','Sr','Ta','Tb','Ti','Tm','U','V','W','Y','Yb','Zn','Zr']
+feature_names = composition_cols
 
 colors = sns.color_palette("mako", len(ig_comp_values))
 
