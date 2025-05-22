@@ -10,7 +10,6 @@ from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.callbacks import Callback
-from scipy.stats import wasserstein_distance
 
 data = pd.read_csv('H_v_dataset.csv')
 composition_cols = [col for col in data.columns if col not in ['Load', 'HV']]
