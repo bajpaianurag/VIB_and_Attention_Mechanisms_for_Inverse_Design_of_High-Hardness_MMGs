@@ -82,8 +82,7 @@ def build_mlp(hidden_layers=2, hidden_units=64, learning_rate=0.001, activation=
     return model
 
 
-## Modelling HV
-# Train and evaluate each model
+# Modelling HV
 results = {}
 best_models = {}
 
