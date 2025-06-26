@@ -1321,8 +1321,8 @@ indices = np.random.choice(sampled_latent_vectors.shape[0], size=num_new_alloys,
 initial_latent_vectors = sampled_latent_vectors[indices, :]
 
 # Optimization parameters
-learning_rate = 0.0001
-num_iterations = 1000000
+learning_rate = 0.001
+num_iterations = 10000
 
 latent_vectors_tf = tf.Variable(initial_latent_vectors, dtype=tf.float32)
 optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate)
