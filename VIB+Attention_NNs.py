@@ -3,29 +3,42 @@ import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
-import random
 from sklearn.decomposition import PCA
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score, mean_absolute_percentage_error
+from sklearn.model_selection import StratifiedKFold
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.neural_network import MLPRegressor
 from sklearn.manifold import TSNE
 from sklearn.cluster import KMeans
 from sklearn.metrics import silhouette_score
 from sklearn.calibration import calibration_curve
+from sklearn.mixture import GaussianMixture
 from scipy.stats import boxcox, skew, norm, pearsonr, spearmanr
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter1d
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.losses import MeanSquaredError
-from tensorflow.keras.callbacks import Callback
-from sklearn.mixture import GaussianMixture
+from tensorflow.keras.callbacks import Callback, EarlyStopping
+from tqdm import trange
+import optuna
+from optuna.samplers import TPESampler
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.optim as optim
 import jax
 import numpyro
 import numpyro.distributions as dist
 from numpyro.infer import MCMC, NUTS
+import random
+import os
 import shap
+from sklearn.utils import shuffle
 import csv
 
 
@@ -38,14 +51,12 @@ tf.random.set_seed(seed)
 
 # Data Ingestion
 data = pd.read_csv('H_v_dataset.csv')
-
 print("\nBasic Statistics:")
 print(data.describe())
 
 composition_cols = [col for col in data.columns if col not in ['Load', 'HV']]
 load_col = 'Load'
 target_col = 'HV'
-
 
 # Hardness Distribution Plot
 plt.style.use('default')
@@ -65,7 +76,6 @@ for spine in plt.gca().spines.values():
 plt.savefig("Distribution of Hardness (HV)", dpi=600, format='jpeg')
 plt.show()
 
-
 # Hardness-Load Plot
 plt.figure(figsize=(10, 8))
 sns.scatterplot(x=data['Load'], y=data['HV'], color='darkcyan', s=180, edgecolor='black')
@@ -83,23 +93,39 @@ plt.show()
 
 
 # Data Preparation
-X_composition = data[composition_cols]
+X_comp_all = data[composition_cols].values
 X_load = data[[load_col]]
 y = data['HV']
 
 scaler_load = StandardScaler()
-X_load_scaled = scaler_load.fit_transform(X_load)
+X_load = scaler_load.fit_transform(X_load)
 
-X_comp_train, X_comp_temp, X_load_train, X_load_temp, y_train, y_temp = train_test_split(
-    X_composition, X_load_scaled, y, test_size=0.25, random_state=42)
+n_clusters = 4
+kmeans = KMeans(n_clusters=n_clusters, random_state=42)
+cluster_labels = kmeans.fit_predict(X_comp_all)
 
-X_comp_val, X_comp_test, X_load_val, X_load_test, y_val, y_test = train_test_split(
-    X_comp_temp, X_load_temp, y_temp, test_size=0.5, random_state=42)
+strat_split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=42)
+for train_idx, test_idx in strat_split.split(X_comp_all, cluster_labels):
+    train_df = data.iloc[train_idx].reset_index(drop=True)
+    test_df = data.iloc[test_idx].reset_index(drop=True)
 
-print(f'Training set size: {X_comp_train.shape[0]} samples')
-print(f'Validation set size: {X_comp_val.shape[0]} samples')
-print(f'Test set size: {X_comp_test.shape[0]} samples')
-print(f'Hardness size: {y.shape[0]} samples')
+X_comp_train = train_df[composition_cols].values
+X_load_train = train_df[['Load']].values
+y_train = train_df['HV'].values
+
+X_comp_test = test_df[composition_cols].values
+X_load_test = test_df[['Load']].values
+y_test = test_df['HV'].values
+
+train_mean = train_df[composition_cols].mean()
+test_mean = test_df[composition_cols].mean()
+
+compare_df = pd.DataFrame({'Train': train_mean, 'Test': test_mean})
+compare_df.plot(kind='bar', figsize=(14, 6))
+plt.ylabel('Mean Fraction')
+plt.title('Elemental Fraction Distribution: Train vs Test')
+plt.tight_layout()
+plt.show()
 
 
 # Skewness Correction (if needed)
@@ -159,6 +185,8 @@ class AttentionScoreLogger(tf.keras.callbacks.Callback):
         super().__init__()
         self.comp_feature_count = comp_feature_count
         self.output_file = output_file
+        self.attention_scores = []
+
         with open(self.output_file, mode='w', newline='') as file:
             writer = csv.writer(file)
             header = [f"Comp_Feature_{i+1}" for i in range(comp_feature_count)] + ["Load_Feature"]
@@ -174,23 +202,25 @@ class AttentionScoreLogger(tf.keras.callbacks.Callback):
 
         all_attention_scores = np.concatenate((avg_comp_attention, avg_load_attention), axis=0)
 
+        self.attention_scores.append(all_attention_scores)
+
         with open(self.output_file, mode='a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([epoch + 1] + all_attention_scores.tolist())
 
 
 # VIBANN Model Definition
-def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16, attention_heads=4):
+def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16, dropout_rate=0.3, attention_heads=4):
     comp_input = layers.Input(shape=(input_shape_comp,), name="Composition_Input")
     x_comp = layers.Dense(64, activation="relu")(comp_input)
     x_comp = layers.BatchNormalization()(x_comp)
-    x_comp = layers.Dropout(0.3)(x_comp)
+    x_comp = layers.Dropout(dropout_rate)(x_comp)
     x_comp_attention, comp_attention_scores = FeatureWiseAttention(name="Comp_Attention")(x_comp)
 
     load_input = layers.Input(shape=(input_shape_load,), name="Load_Input")
     x_load = layers.Dense(32, activation="relu")(load_input)
     x_load = layers.BatchNormalization()(x_load)
-    x_load = layers.Dropout(0.3)(x_load)
+    x_load = layers.Dropout(dropout_rate)(x_load)
     x_load_attention, load_attention_scores = FeatureWiseAttention(name="Load_Attention")(x_load)
 
     combined = layers.Concatenate()([x_comp_attention, x_load_attention])
@@ -202,7 +232,7 @@ def build_vib_attention_model(input_shape_comp, input_shape_load, latent_dim=16,
 
     x = layers.Dense(64, activation="relu")(attention_output)
     x = layers.BatchNormalization()(x)
-    x = layers.Dropout(0.3)(x)
+    x = layers.Dropout(dropout_rate)(x)
 
     output = layers.Dense(1, name="Output_Layer")(x)
     model = models.Model(inputs=[comp_input, load_input],
@@ -247,39 +277,132 @@ for layer in vib_attention_model.layers:
 if vib_layer is None:
     raise ValueError("VIB layer not found in the model.")
 
-vib_attention_model.compile(
-    optimizer="adam",
-    loss={
-        "Output_Layer": tf.keras.losses.MeanSquaredError(),
-        "Comp_Attention": lambda y_true, y_pred: 0.0,  
-        "Load_Attention": lambda y_true, y_pred: 0.0,  
-    },
-    loss_weights={
-        "Output_Layer": 1.0,
-        "Comp_Attention": 0.0,
-        "Load_Attention": 0.0, 
-    }
+
+# Bayesian Optimization for Latent Dimension
+def objective(trial):
+    latent_dim = trial.suggest_categorical("latent_dim", [8, 16, 32, 64])
+    dropout_rate = trial.suggest_float("dropout_rate", 0.1, 0.5)
+    attention_heads = trial.suggest_categorical("attention_heads", [2, 4, 8])
+    
+    model = build_vib_attention_model(
+        input_shape_comp=X_comp_train.shape[1],
+        input_shape_load=X_load_train.shape[1],
+        latent_dim=latent_dim,
+        attention_heads=4
+    )
+
+    vib_layer = next(layer for layer in model.layers if isinstance(layer, VIBLayer))
+
+    model.compile(
+        optimizer="adam",
+        loss={
+            "Output_Layer": tf.keras.losses.MeanSquaredError(),
+            "Comp_Attention": lambda y_true, y_pred: 0.0,
+            "Load_Attention": lambda y_true, y_pred: 0.0
+        },
+        loss_weights={
+            "Output_Layer": 1.0,
+            "Comp_Attention": 0.0,
+            "Load_Attention": 0.0
+        }
+    )
+
+    dummy_comp = np.zeros_like(X_comp_train)
+    dummy_load = np.zeros_like(X_load_train)
+
+    history = model.fit(
+        [X_comp_train, X_load_train],
+        {
+            "Output_Layer": y_train,
+            "Comp_Attention": dummy_comp,
+            "Load_Attention": dummy_load
+        },
+        validation_split=0.2,
+        epochs=50,
+        batch_size=32,
+        verbose=0
+    )
+
+    val_loss = history.history["val_loss"][-1]
+    return val_loss
+
+study = optuna.create_study(direction="minimize", sampler=TPESampler(seed=42))
+study.optimize(objective, n_trials=25)
+
+all_info = sorted(study.trials, key=lambda x: x.value)[:25]
+all_info_df = pd.DataFrame(
+    [(t.number,
+      t.params['latent_dim'],
+      t.params['dropout_rate'],
+      t.params['attention_heads'],
+      t.value) for t in all_info],
+    columns=["Trial", "Latent_Dim", "Dropout", "Attention_Heads", "Val_Loss"]
 )
+all_info_df.to_csv("Bayesian_Optimization_VIBANN_parameters.csv", index=False)
+print("All Latent dimensions saved to 'Bayesian_Optimization_Results.csv'")
 
-# Create dummy targets for the attention outputs
-dummy_comp_train = np.zeros((X_comp_train.shape[0], X_comp_train.shape[1]))
-dummy_load_train = np.zeros((X_comp_train.shape[0], 1))
-
-dummy_comp_val = np.zeros((X_comp_val.shape[0], X_comp_val.shape[1]))
-dummy_load_val = np.zeros((X_comp_val.shape[0], 1))
+best_latent_dim = study.best_trial.params['latent_dim']
+print(f"Best latent dimension selected via BO: {best_latent_dim}")
 
 
 # Model Training
-attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
-adaptive_beta_callback = AdaptiveBetaCallback(vib_layer)
 train_losses = []
 val_losses = []
 beta_values = []
 
 epochs = 1000
+k = 5
+skf = StratifiedKFold(n_splits=k, shuffle=True, random_state=42)
 
-for epoch in range(epochs):
-    history = vib_attention_model.fit(
+fold_results = {
+    "train_losses": [],
+    "val_losses": [],
+    "r2_scores": [],
+    "mse_scores": [],
+    "beta_traces": [],
+    "attention_scores": []
+}
+
+for fold, (train_index, val_index) in enumerate(skf.split(X_comp_all, cluster_labels)):
+    print(f"\nFold {fold + 1}/{k}")
+
+    X_comp_train = X_comp_all[train_index]
+    X_load_train = X_load[train_index]
+    y_train = y.iloc[train_index]
+
+    X_comp_val = X_comp_all[val_index]
+    X_load_val = X_load[val_index]
+    y_val = y.iloc[val_index]
+
+    dummy_comp_train = np.zeros((X_comp_train.shape[0], X_comp_train.shape[1]))
+    dummy_load_train = np.zeros((X_comp_train.shape[0], 1))
+    dummy_comp_val = np.zeros((X_comp_val.shape[0], X_comp_val.shape[1]))
+    dummy_load_val = np.zeros((X_comp_val.shape[0], 1))
+
+    vib_attention_model = build_vib_attention_model(X_comp_train.shape[1], X_load_train.shape[1])
+    vib_layer = next(layer for layer in vib_attention_model.layers if isinstance(layer, VIBLayer))
+
+    vib_attention_model.compile(
+        optimizer="adam",
+        loss={
+            "Output_Layer": tf.keras.losses.MeanSquaredError(),
+            "Comp_Attention": lambda y_true, y_pred: 0.0,
+            "Load_Attention": lambda y_true, y_pred: 0.0,
+        },
+        loss_weights={
+            "Output_Layer": 1.0,
+            "Comp_Attention": 0.0,
+            "Load_Attention": 0.0,
+        }
+    )
+
+    attention_logger = AttentionScoreLogger(comp_feature_count=X_comp_train.shape[1])
+    adaptive_beta_callback = AdaptiveBetaCallback(vib_layer)
+
+    train_losses, val_losses, beta_values = [], [], []
+
+    for epoch in trange(epochs, desc=f"Fold {fold + 1} Training"):
+        history = vib_attention_model.fit(
             [X_comp_train, X_load_train],
             {
                 "Output_Layer": y_train,
@@ -296,17 +419,45 @@ for epoch in range(epochs):
             ),
             epochs=1,
             callbacks=[attention_logger, adaptive_beta_callback],
-            verbose=1
+            verbose=0
         )
-    train_losses.append(history.history['loss'][0])
-    val_losses.append(history.history['val_loss'][0])
-    kl_loss = vib_layer.kl_loss.numpy()
-    adjust_beta(vib_layer, kl_loss)
-    beta_values.append(vib_layer.beta.numpy())
-    print(f"Epoch {epoch + 1}/{epochs} - KL Loss: {kl_loss:.4f}, Updated Beta: {vib_layer.beta.numpy():.6f}")
+        train_losses.append(history.history['loss'][0])
+        val_losses.append(history.history['val_loss'][0])
+        kl_loss = vib_layer.kl_loss.numpy()
+        adjust_beta(vib_layer, kl_loss)
+        beta_values.append(vib_layer.beta.numpy())
+
+    y_pred = vib_attention_model.predict([X_comp_val, X_load_val], verbose=0)[0]
+    r2 = r2_score(y_val, y_pred)
+    mse = mean_squared_error(y_val, y_pred)
+
+    fold_results["train_losses"].append(train_losses)
+    fold_results["val_losses"].append(val_losses)
+    fold_results["beta_traces"].append(beta_values)
+    fold_results["r2_scores"].append(r2)
+    fold_results["mse_scores"].append(mse)
+    fold_results["attention_scores"].append(attention_logger.attention_scores.copy())
+
+    vib_attention_model.save(f"vib_model_fold_{fold+1}.h5")
+
+    print(f"Fold {fold+1} R²: {r2:.4f}, MSE: {mse:.2f}")
 
 
-# Plot Training and Validation Loss
+# Plot learning curves for all folds
+plt.figure(figsize=(10, 8))
+for i in range(k):
+    plt.plot(fold_results["train_losses"][i], label=f'Train Fold {i+1}')
+    plt.plot(fold_results["val_losses"][i], label=f'Val Fold {i+1}', linestyle='--')
+plt.xlabel("Epoch")
+plt.ylabel("Loss")
+plt.title("Training and Validation Loss per Fold")
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+
+# Plot Training and Validation Loss for best fold
 fig, ax = plt.subplots(figsize=(10, 8))
 ax.plot(train_losses, label='Training Loss', color='blue', linewidth=3, marker='.', markersize=2, markerfacecolor='blue')
 ax.plot(val_losses, label='Validation Loss', color='red', linewidth=3, marker='.', markersize=2, markerfacecolor='red')
@@ -326,6 +477,38 @@ plt.savefig("Model Training and Validation Loss Over Epochs", dpi=600, format='j
 plt.show()
 
 
+# Plot loss vs. folds
+avg_train_losses = [np.mean(losses) for losses in fold_results["train_losses"]]
+std_train_losses = [np.std(losses) for losses in fold_results["train_losses"]]
+avg_val_losses = [np.mean(losses) for losses in fold_results["val_losses"]]
+std_val_losses = [np.std(losses) for losses in fold_results["val_losses"]]
+
+fold_ids = np.arange(1, k + 1)
+
+plt.figure(figsize=(10, 8))
+plt.plot(fold_ids, avg_train_losses, 'o--', color='crimson', label='Train', linewidth=1.8)
+plt.fill_between(fold_ids,
+                 np.array(avg_train_losses) - np.array(std_train_losses),
+                 np.array(avg_train_losses) + np.array(std_train_losses),
+                 alpha=0.3, color='crimson')
+
+plt.plot(fold_ids, avg_val_losses, 'o--', color='teal', label='Validation', linewidth=1.8)
+plt.fill_between(fold_ids,
+                 np.array(avg_val_losses) - np.array(std_val_losses),
+                 np.array(avg_val_losses) + np.array(std_val_losses),
+                 alpha=0.3, color='teal')
+
+plt.xlabel("Training set size", fontsize=14)
+plt.ylabel("RMSE", fontsize=14)
+plt.xticks(fold_ids)
+plt.ylim(80, 110)
+plt.legend(frameon=True, facecolor='lightgrey', fontsize=12)
+plt.grid(False)
+plt.tight_layout()
+plt.savefig("Learning_Curve.jpeg", dpi=600, format='jpeg')
+plt.show()
+
+
 # Plot beta value over epochs
 plt.figure(figsize=(10, 8))
 plt.plot(beta_values, label=r'$\beta$ (Adaptive)', color='darkviolet', linewidth=3, marker='.', markersize=3, markerfacecolor='indigo')
@@ -340,6 +523,12 @@ for spine in plt.gca().spines.values():
 plt.tight_layout()
 plt.savefig("beta Value Dynamics During Training", dpi=600, format='jpeg')
 plt.show()
+
+
+# Save model weights and full model
+vib_attention_model.save_weights("vib_attention_model.weights.h5")
+vib_attention_model.save("vib_attention_full_model.keras")
+print("Model weights and full model saved.")
 
 
 # Monte Carlo Dropout for Uncertaininty Quantification
@@ -536,20 +725,20 @@ def integrated_gradients(model, baseline, inputs, target_output_idx=None, steps=
 
     return integrated_grads_comp, integrated_grads_load
 
-comp_baseline_np = np.mean(X_comp_train.to_numpy(), axis=0, keepdims=True)
+comp_baseline_np = np.mean(X_comp_train, axis=0, keepdims=True)
 load_baseline_np = np.mean(X_load_train, axis=0, keepdims=True)
-
 
 comp_baseline = tf.constant(comp_baseline_np, dtype=tf.float32)
 load_baseline = tf.constant(load_baseline_np, dtype=tf.float32)
 
-sample_idx = 0 
+sample_idx = 0
 
-comp_row    = X_comp_test.iloc[sample_idx].values
-comp_input  = tf.expand_dims(comp_row, axis=0) 
-load_row    = X_load_test[sample_idx]         
-load_row    = load_row.reshape(1, -1)
-load_input  = tf.constant(load_row, dtype=tf.float32)
+comp_row = X_comp_test[sample_idx]
+comp_input = tf.expand_dims(comp_row, axis=0)
+
+load_row = X_load_test[sample_idx]
+load_row = load_row.reshape(1, -1)
+load_input = tf.constant(load_row, dtype=tf.float32)
 
 baseline_inputs = [comp_baseline, load_baseline]
 sample_inputs = [comp_input, load_input]
@@ -628,6 +817,7 @@ plt.savefig("Calibration Curve for Predicted Hardness", dpi=600, format='jpeg')
 plt.show()
 
 
+## Latent Sampling and Inverse Design
 # VIB Latent Space Visualization
 latent_model = tf.keras.Model(inputs=vib_attention_model.input, 
                               outputs=vib_attention_model.get_layer('vib_layer').output)
@@ -769,6 +959,52 @@ for spine in plt.gca().spines.values():
 plt.tight_layout()
 plt.savefig("gmm_probability_density_with_scatter_points.png", dpi=600, format='png')
 plt.show()
+
+
+# SHAP on all clusters
+latent_all = latent_model.predict([X_comp_all, X_load])
+
+gmm = GaussianMixture(n_components=3, random_state=42)
+gmm.fit(latent_all)
+cluster_labels = gmm.predict(latent_all)
+
+# SHAP input for ALL DATA
+X_full_all = np.concatenate([X_comp_all, X_load], axis=1)
+y_all = y
+
+def shap_predict(inputs):
+    comp = inputs[:, :n_comp]
+    load = inputs[:, n_comp:]
+    pred = vib_attention_model.predict([comp, load], verbose=0)[0]
+    return pred
+
+n_comp = X_comp_all.shape[1]
+X_full_all = np.concatenate([X_comp_all, X_load], axis=1)
+feature_names = composition_cols + ['Load']
+
+explainer = shap.Explainer(shap_predict, X_full_all, feature_names=feature_names)
+
+cluster_means = {}
+
+for cid in np.unique(cluster_labels):
+    idx = np.where(cluster_labels == cid)[0]
+    X_cluster = X_full_all[idx]
+    y_cluster = y.values[idx] 
+
+    shap_values = explainer(X_cluster)
+
+    shap.plots.bar(shap_values, max_display=10, show=False)
+    plt.title(f"SHAP Bar Plot - Cluster {cid}")
+    plt.tight_layout()
+    plt.savefig(f"Cluster_{cid}_SHAP_Bar.png")
+    plt.close()
+  
+    mean_feat = pd.DataFrame(X_cluster, columns=feature_names).mean()
+    cluster_means[f"Cluster_{cid}"] = mean_feat
+
+means_df = pd.DataFrame(cluster_means).T
+means_df.to_csv("Cluster_Physical_Feature_Means.csv")
+print(means_df)
 
 
 # Latent Traversal Analysis
@@ -981,7 +1217,7 @@ plt.tight_layout()
 plt.show()
 
 
-# Inverse Design of ultra-high hardness alloys
+## Inverse Design of ultra-high hardness alloys
 cluster_0_mean = gmm.means_[0]
 cluster_0_cov = gmm.covariances_[0]
 
