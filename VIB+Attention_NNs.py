@@ -1020,6 +1020,8 @@ for L in vib_attention_model.layers[vib_idx+1:]:
     else:
         x = L(x)
 
+x = tf.keras.layers.Flatten()(x)
+
 comp_dim = X_comp_train.shape[1]
 comp_out = tf.keras.layers.Dense(comp_dim, activation='softmax', name="comp_out")(x)
 hard_out = tf.keras.layers.Dense(1, activation='relu', name="hardness_out")(x)
