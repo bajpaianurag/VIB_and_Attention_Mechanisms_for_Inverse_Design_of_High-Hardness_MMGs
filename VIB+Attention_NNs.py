@@ -20,6 +20,7 @@ from sklearn.mixture import GaussianMixture
 from scipy.stats import boxcox, skew, norm, pearsonr, spearmanr
 from scipy.interpolate import griddata
 from scipy.ndimage import gaussian_filter1d
+from scipy.spatial import distance
 import tensorflow as tf
 from tensorflow.keras import layers, models
 from tensorflow.keras.losses import MeanSquaredError
@@ -1538,3 +1539,43 @@ for spine in ax.spines.values():
     spine.set_linewidth(2)
 plt.tight_layout()
 plt.savefig("t-SNE Visualization of Latent Space with Inverse Design Samples", dpi=600, format='jpeg')
+
+
+# Compute composition space distances for designed alloys
+sampled_compositions = predicted_compositions_normalized
+optimized_compositions = filtered_compositions_normalized
+
+def compute_min_distances(reference_vectors, query_vectors):
+    min_dists = []
+    for q in query_vectors:
+        dists = np.linalg.norm(reference_vectors - q, axis=1)
+        min_dists.append(np.min(dists))
+    return np.array(min_dists)
+
+# Composition space distances
+sampled_comp_dists = compute_min_distances(X_comp_all, sampled_compositions)
+optimized_comp_dists = compute_min_distances(X_comp_all, optimized_compositions)
+
+print("\nComposition Space Distances (Sampled):")
+print("Min:", np.min(sampled_comp_dists))
+print("Max:", np.max(sampled_comp_dists))
+print("Mean:", np.mean(sampled_comp_dists))
+
+print("\nComposition Space Distances (Optimized):")
+print("Min:", np.min(optimized_comp_dists))
+print("Max:", np.max(optimized_comp_dists))
+print("Mean:", np.mean(optimized_comp_dists))
+
+# Latent space distances
+sampled_latent_dists = compute_min_distances(latent_vectors, sampled_latent_vectors)
+optimized_latent_dists = compute_min_distances(latent_vectors, optimized_latent_vectors)
+
+print("\nLatent Space Distances (Sampled):")
+print("Min:", np.min(sampled_latent_dists))
+print("Max:", np.max(sampled_latent_dists))
+print("Mean:", np.mean(sampled_latent_dists))
+
+print("\nLatent Space Distances (Optimized):")
+print("Min:", np.min(optimized_latent_dists))
+print("Max:", np.max(optimized_latent_dists))
+print("Mean:", np.mean(optimized_latent_dists))
