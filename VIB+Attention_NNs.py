@@ -1260,7 +1260,7 @@ latent_dim_size = sampled_latent_vectors.shape[1]
 latent_input = tf.keras.Input(shape=(latent_dim_size,), name='Latent_Input')
 
 sequence_length = 1
-projected_dim = 16
+projected_dim = best_latent_dim
 
 x = tf.keras.layers.Reshape((sequence_length, latent_dim_size))(latent_input)
 x = tf.keras.layers.Dense(projected_dim)(x)
