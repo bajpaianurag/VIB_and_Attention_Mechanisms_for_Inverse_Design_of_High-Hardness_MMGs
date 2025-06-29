@@ -342,7 +342,11 @@ all_info_df.to_csv("Bayesian_Optimization_VIBANN_parameters.csv", index=False)
 print("All Latent dimensions saved to 'Bayesian_Optimization_Results.csv'")
 
 best_latent_dim = study.best_trial.params['latent_dim']
+best_dropout_rate = study.best_trial.params['dropout_rate']
+best_attention_heads = study.best_trial.params['attention_heads']
 print(f"Best latent dimension selected via BO: {best_latent_dim}")
+print(f"Best drouput rate selected via BO: {best_dropout_rate}")
+print(f"Best number of attention heads selected via BO: {best_attention_heads}")
 
 
 # Model Training
@@ -379,7 +383,7 @@ for fold, (train_index, val_index) in enumerate(skf.split(X_comp_all, cluster_la
     dummy_comp_val = np.zeros((X_comp_val.shape[0], X_comp_val.shape[1]))
     dummy_load_val = np.zeros((X_comp_val.shape[0], 1))
 
-    vib_attention_model = build_vib_attention_model(X_comp_train.shape[1], X_load_train.shape[1])
+    vib_attention_model = build_vib_attention_model(input_shape_comp=X_comp_train.shape[1], input_shape_load=X_load_train.shape[1], latent_dim=best_latent_dim, dropout_rate=best_dropout_rate, attention_heads=best_attention_heads)
     vib_layer = next(layer for layer in vib_attention_model.layers if isinstance(layer, VIBLayer))
 
     vib_attention_model.compile(
