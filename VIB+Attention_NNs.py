@@ -809,6 +809,19 @@ bin_centers = (pred_bins[:-1] + pred_bins[1:]) / 2
 actual_means = [np.mean(y_test[bin_indices == i]) for i in range(1, len(pred_bins))]
 predicted_means = [np.mean(y_pred_mean[bin_indices == i]) for i in range(1, len(pred_bins))]
 
+ece = 0.0
+n = len(y_test)
+
+for i in range(1, len(pred_bins)):
+    bin_mask = (bin_indices == i)
+    n_i = np.sum(bin_mask)
+    if n_i > 0:
+        error = np.abs(predicted_means[i - 1] - actual_means[i - 1])
+        ece += (n_i / n) * error
+
+normalized_ece = ece / (y_test.max() - y_test.min())
+print(f"Normalized ECE: {normalized_ece:.3f}")
+
 plt.figure(figsize=(10, 8))
 plt.plot(predicted_means, actual_means, 'o-', color='green', label="Calibration Curve")
 plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'k--', label="Perfect Calibration")
