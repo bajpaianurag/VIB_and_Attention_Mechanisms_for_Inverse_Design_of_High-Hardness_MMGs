@@ -603,9 +603,9 @@ print(f"Test RMSE: {rmse_mean:.4f} (95% CI: [{rmse_lower:.4f}, {rmse_upper:.4f}]
 fig, ax = plt.subplots(figsize=(10, 8))
 ax.errorbar(y_test, y_pred_mean, yerr=y_pred_std/2.5, fmt='o', ecolor='red', alpha=0.8, capsize=5, 
             markerfacecolor='blue', markeredgewidth=1, markersize=10, label='Monte-Carlo Dropout Predictions')
-ax.plot([0, 2000], [0, 2000], 'k--', lw=2)
-ax.set_xlim(0, 2000)
-ax.set_ylim(0, 2000)
+ax.plot([0, 2400], [0, 2400], 'k--', lw=2)
+ax.set_xlim(0, 2400)
+ax.set_ylim(0, 2400)
 ax.set_xlabel('Actual Hardness (HV)', fontsize=22, weight='bold')
 ax.set_ylabel('Predicted Hardness (HV)', fontsize=22, weight='bold')
 ax.grid(False)
