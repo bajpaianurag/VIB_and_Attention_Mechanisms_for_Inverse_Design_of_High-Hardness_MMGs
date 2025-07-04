@@ -1331,8 +1331,8 @@ best_loss = float('inf')
 no_improvement_counter = 0
 
 # Desired hardness range
-min_hardness = 2200
-max_hardness = 2500
+min_hardness = 2500
+max_hardness = 3000
 
 num_new_alloys = 5
 
