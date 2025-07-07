@@ -319,7 +319,7 @@ def objective(trial):
             "Load_Attention": dummy_load
         },
         validation_split=0.2,
-        epochs=50,
+        epochs=500,
         batch_size=32,
         verbose=0
     )
@@ -328,9 +328,9 @@ def objective(trial):
     return val_loss
 
 study = optuna.create_study(direction="minimize", sampler=TPESampler(seed=42))
-study.optimize(objective, n_trials=25)
+study.optimize(objective, n_trials=50)
 
-all_info = sorted(study.trials, key=lambda x: x.value)[:25]
+all_info = sorted(study.trials, key=lambda x: x.value)[:50]
 all_info_df = pd.DataFrame(
     [(t.number,
       t.params['latent_dim'],
