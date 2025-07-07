@@ -1238,18 +1238,18 @@ plt.show()
 
 
 ## Inverse Design of ultra-high hardness alloys
-cluster_0_mean = gmm.means_[0]
-cluster_0_cov = gmm.covariances_[0]
+cluster_1_mean = gmm.means_[1]
+cluster_1_cov = gmm.covariances_[1]
 
-# Define the MCMC model for cluster 0
-def gmm_cluster_0_model():
+# Define the MCMC model for cluster 1
+def gmm_cluster_1_model():
     numpyro.sample(
         "sampled_latent",
-        dist.MultivariateNormal(loc=cluster_0_mean, covariance_matrix=cluster_0_cov)
+        dist.MultivariateNormal(loc=cluster_1_mean, covariance_matrix=cluster_1_cov)
     )
 
 rng_key = jax.random.PRNGKey(0)
-nuts_kernel = NUTS(gmm_cluster_0_model)
+nuts_kernel = NUTS(gmm_cluster_1_model)
 mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=200, num_chains=1)
 
 # Run MCMC sampling
