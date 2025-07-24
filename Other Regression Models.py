@@ -19,13 +19,15 @@ import os
 
 # Load dataset
 data = pd.read_csv('H_v_dataset.csv')
-X = data.drop(['Load','HV'], axis=1).values
+X = data.drop(['HV'], axis=1).values
 y = data['HV'].values
 
 # Split dataset into train and test sets
 X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
+
 # Hyperparamter Space and Model Initiation
+regressor_models = {
 regressor_models = {
     "RF": (RandomForestRegressor(), {
         'n_estimators': (10, 200),
@@ -34,11 +36,7 @@ regressor_models = {
         'min_samples_leaf': (1, 30),
         'max_features': (0.1, 1.0),
         'bootstrap': [True, False],
-        'criterion': ['poisson', 'squared_error', 'absolute_error', 'friedman_mse'],
-        'min_impurity_decrease': (0.0, 0.1),  
-        'min_weight_fraction_leaf': (0.0, 0.5),  
-        'max_leaf_nodes': (10, 50),
-        'ccp_alpha': (0.0, 0.2)
+        'criterion': ['poisson', 'squared_error', 'absolute_error', 'friedman_mse']
     }),
     "Lasso": (Lasso(), {
         'alpha': (0.000001, 1.0),                     
@@ -60,6 +58,15 @@ regressor_models = {
         'max_depth': (1, 30),                        
         'min_samples_split': (2, 30),                               
         'max_features': (0.1, 1.0),  
+    }),
+    "MLP": (KerasRegressor(model=build_mlp,verbose=0), {
+        'model__hidden_layers': Integer(1, 4),
+        'model__hidden_units': Integer(16, 1288),
+        'model__learning_rate': Real(1e-4, 1e-2, prior='log-uniform'),
+        'model__activation': Categorical(['relu', 'tanh']),
+        'model__optimizer': Categorical(['adam', 'sgd']),
+        'batch_size': Integer(16, 64),
+        'epochs': Integer(100, 500)
     })
 }
 
@@ -83,6 +90,7 @@ def build_mlp(hidden_layers=2, hidden_units=64, learning_rate=0.001, activation=
 
 
 # Modelling HV
+# Train and evaluate each model
 results = {}
 best_models = {}
 
@@ -128,7 +136,7 @@ for name, (model, search_space) in regressor_models.items():
     plt.legend()
     plt.savefig(f'{name}_parity_plot_HV.png')
     plt.show()
-
+    
 
 # Learning curves
 def plot_learning_curves_detailed(estimator, X, y, title='', cv=5, train_sizes=np.linspace(0.1, 1.0, 5), model_name='model', suffix=''):
@@ -176,4 +184,3 @@ def plot_learning_curves_detailed(estimator, X, y, title='', cv=5, train_sizes=n
 cv_kfold = KFold(n_splits=5, shuffle=True, random_state=42)
 for name, model in best_models.items():
     plot_learning_curves_detailed(model, X, y, title=name, cv=cv_kfold, model_name=name, suffix='kfold')
-
