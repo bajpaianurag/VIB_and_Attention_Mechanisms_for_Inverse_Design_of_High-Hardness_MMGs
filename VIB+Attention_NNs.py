@@ -93,6 +93,26 @@ plt.savefig("Relationship Between Load and Hardness (HV)", dpi=600, format='jpeg
 plt.show()
 
 
+# Skewness Correction (if needed)
+skewness = skew(y)
+print(f"Skewness of hardness (HV): {skewness:.2f}")
+
+# Apply Box-Cox transformation
+if skewness > 0.5: 
+    y_transformed, _ = boxcox(y + 1)
+    y = y_transformed
+
+    plt.figure(figsize=(10, 6))
+    sns.histplot(y, kde=True, bins=30, color='purple', edgecolor='black')
+    plt.title("Distribution of Transformed Hardness (HV)")
+    plt.xlabel("Transformed Hardness (HV)")
+    plt.ylabel("Frequency")
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.show()
+else:
+    print("No significant skewness detected; proceeding without transformation.")
+
+
 # Data Preparation
 X_comp_all = data[composition_cols].values
 X_load = data[[load_col]]
@@ -129,27 +149,7 @@ plt.tight_layout()
 plt.show()
 
 
-# Skewness Correction (if needed)
-skewness = skew(y)
-print(f"Skewness of hardness (HV): {skewness:.2f}")
-
-# Apply Box-Cox transformation
-if skewness > 0.5: 
-    y_transformed, _ = boxcox(y + 1)
-    y = y_transformed
-
-    plt.figure(figsize=(10, 6))
-    sns.histplot(y, kde=True, bins=30, color='purple', edgecolor='black')
-    plt.title("Distribution of Transformed Hardness (HV)")
-    plt.xlabel("Transformed Hardness (HV)")
-    plt.ylabel("Frequency")
-    plt.grid(True, linestyle='--', alpha=0.7)
-    plt.show()
-else:
-    print("No significant skewness detected; proceeding without transformation.")
-
-
-## The VIBANN Architechture
+## The VIBANN Architecture
 # VIB Layer
 class VIBLayer(layers.Layer):
     def __init__(self, latent_dim=16, **kwargs):
@@ -350,7 +350,7 @@ print(f"Best drouput rate selected via BO: {best_dropout_rate}")
 print(f"Best number of attention heads selected via BO: {best_attention_heads}")
 
 
-# Model Training
+# VIBANN Model Training
 train_losses = []
 val_losses = []
 beta_values = []
@@ -372,11 +372,11 @@ for fold, (train_index, val_index) in enumerate(skf.split(X_comp_all, cluster_la
     print(f"\nFold {fold + 1}/{k}")
 
     X_comp_train = X_comp_all[train_index]
-    X_load_train = X_load[train_index]
+    X_load_train = X_load.iloc[train_index]
     y_train = y.iloc[train_index]
 
     X_comp_val = X_comp_all[val_index]
-    X_load_val = X_load[val_index]
+    X_load_val = X_load.iloc[val_index]
     y_val = y.iloc[val_index]
 
     dummy_comp_train = np.zeros((X_comp_train.shape[0], X_comp_train.shape[1]))
@@ -537,7 +537,7 @@ print("Model weights and full model saved.")
 
 
 # Monte Carlo Dropout for Uncertaininty Quantification
-def bootstrap_rmse_ci(y_true, y_pred_samples, n_bootstrap=1000, ci=0.95):
+def bootstrap_rmse_ci(y_true, y_pred_samples, n_bootstrap=500, ci=0.95):
     n = len(y_true)
     rmse_list = []
 
@@ -632,20 +632,6 @@ plt.savefig("Distribution of Prediction Uncertainty (Standard Deviation)", dpi=6
 plt.show()
 
 
-# RMSE Frequency Distribution
-plt.figure(figsize=(10,6))
-sns.histplot(rmse_list, kde=True, bins=30, color='skyblue')
-plt.axvline(rmse_mean, color='blue', linestyle='--', label='Mean RMSE')
-plt.axvline(rmse_lower, color='red', linestyle='--', label='Lower CI')
-plt.axvline(rmse_upper, color='green', linestyle='--', label='Upper CI')
-plt.xlabel("RMSE")
-plt.ylabel("Frequency")
-plt.title("Bootstrap Distribution of RMSE")
-plt.legend()
-plt.tight_layout()
-plt.show()
-
-
 # Calculate additional metrics for evaluation
 rmse = np.sqrt(mean_squared_error(y_test, y_pred_mean))
 mae = mean_absolute_error(y_test, y_pred_mean)
@@ -694,7 +680,7 @@ plt.savefig("Average Attention Weights for Composition Features", dpi=600, forma
 plt.show()
 
 
-# Attriation Analysis for composition features
+# Attribution Analysis for composition features
 def integrated_gradients(model, baseline, inputs, target_output_idx=None, steps=200):
     """
     Compute Integrated Gradients for a model and inputs.
@@ -833,6 +819,7 @@ plt.yticks(fontsize=20)
 plt.legend()
 plt.savefig("Calibration Curve for Predicted Hardness", dpi=600, format='jpeg')
 plt.show()
+
 
 
 ## Latent Sampling and Inverse Design
@@ -980,13 +967,12 @@ plt.show()
 
 
 # SHAP on all clusters
-latent_all = latent_model.predict([X_comp_all, X_load])
+llatent_all = latent_model.predict([X_comp_all, X_load])
 
 gmm = GaussianMixture(n_components=3, random_state=42)
 gmm.fit(latent_all)
 cluster_labels = gmm.predict(latent_all)
 
-# SHAP input for ALL DATA
 X_full_all = np.concatenate([X_comp_all, X_load], axis=1)
 y_all = y
 
@@ -1168,7 +1154,7 @@ plt.tight_layout()
 plt.show()
 
 
-# Pricipal Component Analysis on Latent Space
+# Principal Component Analysis on Latent Space
 latent_vectors_test = latent_model.predict([X_comp_test, X_load_test])
 hardness_preds = y_pred_mean
 
@@ -1237,19 +1223,20 @@ plt.tight_layout()
 plt.show()
 
 
-## Inverse Design of ultra-high hardness alloys
-cluster_1_mean = gmm.means_[1]
-cluster_1_cov = gmm.covariances_[1]
 
-# Define the MCMC model for cluster 1
-def gmm_cluster_1_model():
+## Inverse Design of ultra-high hardness alloys
+cluster_2_mean = gmm.means_[1]
+cluster_2_cov = gmm.covariances_[1]
+
+# Define the MCMC model for cluster 2
+def gmm_cluster_2_model():
     numpyro.sample(
         "sampled_latent",
-        dist.MultivariateNormal(loc=cluster_1_mean, covariance_matrix=cluster_1_cov)
+        dist.MultivariateNormal(loc=cluster_2_mean, covariance_matrix=cluster_2_cov)
     )
 
 rng_key = jax.random.PRNGKey(0)
-nuts_kernel = NUTS(gmm_cluster_1_model)
+nuts_kernel = NUTS(gmm_cluster_2_model)
 mcmc = MCMC(nuts_kernel, num_warmup=500, num_samples=200, num_chains=1)
 
 # Run MCMC sampling
@@ -1341,7 +1328,7 @@ indices = np.random.choice(sampled_latent_vectors.shape[0], size=num_new_alloys,
 initial_latent_vectors = sampled_latent_vectors[indices, :]
 
 # Optimization parameters
-learning_rate = 0.001
+learning_rate = 0.0001
 num_iterations = 10000
 
 latent_vectors_tf = tf.Variable(initial_latent_vectors, dtype=tf.float32)
