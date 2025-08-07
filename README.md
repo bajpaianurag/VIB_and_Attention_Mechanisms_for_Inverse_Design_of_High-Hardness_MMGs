@@ -5,7 +5,7 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 
 ---
 
-## 🚀 Project Highlights
+## Project Highlights
 
 - **Forward Model**: Predicts Vickers hardness (HV) from alloy composition using:
   - Variational Information Bottleneck (VIB) networks
