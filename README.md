@@ -49,7 +49,8 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 | Column         | Description                                      |
 |----------------|--------------------------------------------------|
 | Element_x      | Molar fraction of element x (e.g., Fe, Ni, Cu)   |
-| HV             | Measured or predicted Vickers hardness (kg/mm²)  |
+| Load           | Load on which hardness is calculated (N)         |
+| Vicker's Hardness | Measured Vickers hardness (HV)                   |
 
 Total number of data points: **~650** MMG compositions.
 
