@@ -20,6 +20,7 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 - **Dataset**: Empirical and simulated data for known MMGs, including:
   - Elemental compositions
   - Experimental hardness values (HV)
+  - Load values on which hardness is measured
 
 ---
 
