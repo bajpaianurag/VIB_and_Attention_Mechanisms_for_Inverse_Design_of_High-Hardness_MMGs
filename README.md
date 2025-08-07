@@ -52,7 +52,7 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 | Load           | Load on which hardness is calculated (N)         |
 | Vicker's Hardness | Measured Vickers hardness (HV)                   |
 
-Total number of data points: **~650** MMG compositions.
+Total number of data points: **~670** MMG compositions.
 
 ---
 
