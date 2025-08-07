@@ -138,7 +138,7 @@ See `requirements.txt` for exact versions. Main packages:
 
 ## Acknowledgments
 
-This work was carried out at **Max-Planck-Institut for Sustainable Materials** and is supported by Alexander von Humboldt-Stiftung
+This work was carried out at **Max-Planck-Institut for Sustainable Materials** and is supported by **Alexander von Humboldt-Stiftung**.
 
 ---
 
