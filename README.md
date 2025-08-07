@@ -20,11 +20,10 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 - **Dataset**: Empirical and simulated data for known MMGs, including:
   - Elemental compositions
   - Experimental hardness values (HV)
-  - Glass-forming ability indicators
 
 ---
 
-## 🗂️ Repository Structure
+## Repository Structure
 
 ```
 .
@@ -35,14 +34,14 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 ├── vib_attention_full_model.keras           # Full Keras model including encoder and decoder
 ├── Inverse_Design_Module.ipynb              # Latent space optimization for target HV
 ├── Inverse_Design_Helper_Functions.py       # Helper functions for inverse design
-├── MD codes.zip                             # LAMMPS/MD simulation code for validation of structures
+├── MD codes/                                # LAMMPS/MD simulation code for validation of structures
 ├── requirements.txt                         # Python dependencies
 └── README.md                                # You're reading it!
 ```
 
 ---
 
-## 📊 Dataset Description
+## Dataset Description
 
 **File:** `H_v_dataset.csv`
 
@@ -50,13 +49,12 @@ This repository hosts the codebase, dataset, and pretrained models used in our s
 |----------------|--------------------------------------------------|
 | Element_x      | Molar fraction of element x (e.g., Fe, Ni, Cu)   |
 | HV             | Measured or predicted Vickers hardness (kg/mm²)  |
-| GFA_flag       | Optional: Glass-forming ability indicator (0/1)  |
 
-Total number of data points: **~400** MMG compositions.
+Total number of data points: **~650** MMG compositions.
 
 ---
 
-## 🧠 Forward Model: VIB + Attention
+## Forward Model: VIB + Attention
 
 The model architecture implements:
 
@@ -65,17 +63,9 @@ The model architecture implements:
 - **Multi-Head Attention**: Attends to element-specific latent features
 - **Regression Head**: Outputs predicted hardness value
 
-Training parameters (configurable in script):
-
-- Batch size: 64  
-- Optimizer: Adam  
-- Epochs: 500  
-- Learning rate scheduler  
-- Early stopping based on validation loss
-
 ---
 
-## 🔁 Baseline Models
+## Baseline Models
 
 Implemented in `Other Regression Models.py`:
 
@@ -90,7 +80,7 @@ Performance comparison includes RMSE and R² metrics for each.
 
 ---
 
-## 🎯 Inverse Design Pipeline
+## Inverse Design Pipeline
 
 Implemented in: `Inverse_Design_Module.ipynb`
 
@@ -105,15 +95,15 @@ Implemented in: `Inverse_Design_Module.ipynb`
 
 ---
 
-## 🧪 MD Simulation Codes
+## MD Simulation Codes
 
-**File:** `MD codes.zip`
+**Folder:** `MD codes`
 
-Contains sample scripts and input decks for LAMMPS-based mechanical testing simulations (e.g., nanoindentation, tension tests) to validate predicted MMGs.
+Contains scripts and input decks for LAMMPS-based mechanical testing simulations (e.g., nanoindentation, tension tests) to validate predicted MMGs.
 
 ---
 
-## 🛠️ Installation
+## Installation
 
 ### 1. Clone this repository
 ```bash
@@ -130,7 +120,7 @@ pip install -r requirements.txt
 
 ---
 
-## 📌 Requirements
+## Requirements
 
 See `requirements.txt` for exact versions. Main packages:
 - numpy
@@ -144,43 +134,18 @@ See `requirements.txt` for exact versions. Main packages:
 
 ---
 
-## 📈 Sample Results
+## Acknowledgments
 
-| Model                | RMSE (test) | R² (test) |
-|---------------------|-------------|-----------|
-| VIB + Attention      | **92.1**    | **0.92**  |
-| Random Forest        | 134.5       | 0.85      |
-| SVR (RBF)            | 150.2       | 0.80      |
+This work was carried out at **Max-Planck-Institut for Sustainable Materials** and is supported by Alexander von Humboldt-Stiftung
 
 ---
 
-## 📚 Reference
-
-If you use this repository in your work, please cite:
-
-> Bajpai, A., et al. *Inverse Design of High-Hardness Multicomponent Metallic Glasses using Variational Bottleneck and Attention Mechanisms*, (2025). [Preprint DOI / Journal]
-
----
-
-## 🤝 Acknowledgments
-
-This work was carried out at **IIT Indore** and is supported by:
-- Indo-German Science & Technology Centre (IGSTC)
-- [Other Funding Acknowledgements]
-
-Collaborators:
-- Dr. Jasmin Duarte Correa (MPIE, Germany)  
-- Prof. Dierk Raabe (MPIE, Germany)  
-- Dr. Laurine Choisez (UC Louvain, Belgium)
-
----
-
-## 📬 Contact
+## Contact
 
 For questions, collaborations, or discussions:
 
 **Dr. Anurag Bajpai**  
-Assistant Professor  
-Department of Metallurgical Engineering and Materials Science  
-Indian Institute of Technology Indore  
-📧 anurag.bajpai@iiti.ac.in
+Project Group Leader (Alexander von Humboldt Post Doctoral Research Fellow)
+Artificial Intelligence for Materials Science
+Microstructure Physics and Alloy Design
+Max Planck Institute for Sustainable Materials (previously: Max-Planck-Institut für Eisenforschung GmbH)
