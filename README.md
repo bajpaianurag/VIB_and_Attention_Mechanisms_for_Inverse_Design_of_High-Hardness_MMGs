@@ -147,7 +147,7 @@ This work was carried out at **Max-Planck-Institut for Sustainable Materials** a
 For questions, collaborations, or discussions:
 
 **Dr. Anurag Bajpai**  
-Project Group Leader (Alexander von Humboldt Post Doctoral Research Fellow)
-Artificial Intelligence for Materials Science
-Microstructure Physics and Alloy Design
-Max Planck Institute for Sustainable Materials (previously: Max-Planck-Institut für Eisenforschung GmbH)
+- Project Group Leader (Alexander von Humboldt Post Doctoral Research Fellow)
+- Artificial Intelligence for Materials Science
+- Microstructure Physics and Alloy Design
+- Max Planck Institute for Sustainable Materials (previously: Max-Planck-Institut für Eisenforschung GmbH)
