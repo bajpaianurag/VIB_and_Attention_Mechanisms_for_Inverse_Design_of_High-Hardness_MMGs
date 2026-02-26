@@ -1,14 +1,8 @@
 # VIB + Attention for Inverse Design of High‑Hardness Metallic Multi‑Component Glasses
 
-This repository contains the code and data used for the Nature Communications submission associated with **Variational Information Bottleneck (VIB) + Attention neural networks** for predicting Vickers hardness and for **inverse design** of high‑hardness metallic multi‑component glasses (MMGs).
+This repository contains the code and data used for the article **Attention-Enhanced Variational Learning for Physically Informed Design of Ultra-hard Multicomponent Metallic Glasses** for designing exceptionally hard multi-component bulk metallic glasses.
 
-The repository is organized to allow reviewers and readers to:
-1. Reproduce the **supervised regression** results (hardness prediction).
-2. Reproduce **baseline regressors** (“other regressors”) used for comparison.
-3. Reproduce the **baseline inverse design** workflow using **Gaussian‑Process Bayesian Optimization (GP‑BO)**.
-4. Run the **molecular dynamics (MD)** helper scripts used to generate LAMMPS inputs and to perform post‑processing structural analyses.
-
-> **Reproducibility note**: The main ML scripts use a fixed random seed (see each script). For paper‑level statistics (mean ± std over multiple seeds), run the same pipeline over the desired seed list and aggregate the exported metrics.
+> **Reproducibility note**: The main ML scripts use a fixed random seed (see each script). For paper‑level statistics (mean ± std over multiple seeds), run the same pipeline over 10 seeds and aggregate the exported metrics.
 
 ---
 
@@ -18,18 +12,16 @@ The repository is organized to allow reviewers and readers to:
 .
 ├── data/
 │   └── H_v_dataset.csv                 # Composition + load + HV target
-├── ml/
+├── VIBANN/
 │   └── vib_attention_nns.py            # Main VIB + Attention neural network pipeline
-├── baselines/
+├── Baselines/
 │   ├── other_regression_models.py      # Conventional regressors (RF/GB/Lasso/Ridge/KNN/MLP)
 │   └── gp_bo_baseline.py               # Baseline GP surrogate + BO inverse design workflow
-├── md/
-│   └── md_codes/
-│       ├── script.py                   # LAMMPS input generator from comp.csv
-│       ├── comp.csv                    # Example compositions for MD
-│       ├── post-processing/            # RDF, Voronoi, coordination, bond metrics
-│       └── REAMD.md                    # MD module documentation
-├── results/                            # Auto-created outputs (ignored by git)
+├── MD codes/
+│   ├── script.py                       # LAMMPS input generator from comp.csv
+│   ├── comp.csv                        # Final developed compositions for MD
+│   ├── post-processing/                # RDF, Voronoi, coordination, bond metrics
+│   └── REAMD.md                        # MD module documentation
 ├── requirements*.txt                   # Installation options
 ├── environment.yml                     # Conda environment (recommended for reviewers)
 └── CITATION.cff                        # Citation metadata (fill DOI after acceptance)
@@ -63,7 +55,7 @@ pip install -r requirements.txt
 ### Run
 
 ```bash
-python ml/vib_attention_nns.py
+python VIBANN/vib_attention_nns.py
 ```
 
 ### Inputs
@@ -73,19 +65,10 @@ python ml/vib_attention_nns.py
   - `Load`: indentation load
   - `HV`: Vickers hardness target
 
-### Outputs (typical)
+### Outputs
 
-The script generates diagnostic plots and model artifacts in the working directory. Common outputs include:
-- Hardness distribution and load–hardness scatter plots
-- Train/test composition distribution comparisons
-- Saved figures (`*.jpg`) and exported results (`*.csv` / `*.json`) as produced by the script
+The script generates diagnostic plots and model artifacts in the working directory. 
 
-If you prefer a clean repository, run from a dedicated output directory, e.g.
-
-```bash
-mkdir -p results/vib_attention
-python ml/vib_attention_nns.py
-```
 
 ---
 
@@ -98,25 +81,21 @@ This script provides conventional ML baselines for hardness prediction. It suppo
 ### Run (fast defaults)
 
 ```bash
-python baselines/other_regression_models.py --no-bayes
+Baselines/other_regression_models.py --no-bayes
 ```
 
 ### Run (Bayesian search)
 
 ```bash
-python baselines/other_regression_models.py --n-iter 25 --cv 5
+Baselines/other_regression_models.py --n-iter 25 --cv 5
 ```
 
-### Outputs
-
-- `results/baselines/baselines_metrics.json` (RMSE/MAE/R² and best hyperparameters when used)
-- Parity plots for each model in `results/baselines/`
 
 ---
 
 ## C. Baseline inverse design: GP‑BO
 
-`baselines/gp_bo_baseline.py` implements a GP surrogate model and a Bayesian optimization loop to enable **inverse design** (composition search) as a baseline comparator to the VIB+Attention inverse design workflow.
+`Baselines/gp_bo_baseline.py` implements a GP surrogate model and a Bayesian optimization loop to enable **inverse design** (composition search) as a baseline comparator to the VIB+Attention inverse design workflow.
 
 ### Run
 
@@ -144,15 +123,15 @@ See `md/md_codes/REAMD.md` for full details.
 
 ---
 
-## Reproducing paper figures and tables
+## Important Notes:
 
-The repository contains the **primary pipelines** used in the manuscript:
+The repository contains the **primary pipelines** used in the project:
 - VIB + Attention regression and uncertainty outputs
 - Baseline regressors
 - GP‑BO baseline inverse design
 - MD structure analysis utilities
 
-For paper‑exact reproduction (including seed averaging, selected hyperparameters, and final figure styling), run the pipelines with the same seeds and settings reported in the manuscript and aggregate the exported results.
+For reproduction (including seed averaging, selected hyperparameters, and final figure styling), run the pipelines with the 10 seeds and same settings reported in the manuscript and aggregate the exported results.
 
 ---
 
@@ -163,8 +142,4 @@ See `LICENSE`.
 ---
 
 ## Contact
-
-If you are a reviewer and encounter any issue running the code, please open a GitHub Issue in this repository and include:
-- OS, Python version
-- The exact command you ran
-- The complete traceback / error log
+Please contact me: Dr. Anurag Bajpai (a.bajpai@mpi-susmat.de) if you encounter any issues or need clarifications.
