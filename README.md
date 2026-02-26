@@ -14,6 +14,7 @@ This repository contains the code and data used for the article **Attention-Enha
 │   └── H_v_dataset.csv                 # Composition + load + HV target
 ├── VIBANN/
 │   └── vib_attention_nns.py            # Main VIB + Attention neural network pipeline
+├── Final Model and Weights/            # Final VIBANN model with different cross-validation folds and weights
 ├── Baselines/
 │   ├── other_regression_models.py      # Conventional regressors (RF/GB/Lasso/Ridge/KNN/MLP)
 │   └── gp_bo_baseline.py               # Baseline GP surrogate + BO inverse design workflow
