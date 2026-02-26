@@ -1,15 +1,9 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 # Import Libraries
 import os, json, csv, random
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split  # or reuse fixed splits
+from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import StratifiedShuffleSplit
 from sklearn.gaussian_process import GaussianProcessRegressor
@@ -24,19 +18,11 @@ from collections import Counter
 import optuna
 from optuna.samplers import TPESampler
 
-
-# In[2]:
-
-
-# Fixed seed for reproducibility (GP-BO baseline)
+# Fixed seed (run for 10 seeds and average)
 seed = 1
 os.environ["PYTHONHASHSEED"] = str(seed)
 random.seed(seed)
 np.random.seed(seed)
-
-
-# In[3]:
-
 
 # Data Ingestion
 data_path = "H_v_dataset_2.csv"
@@ -46,13 +32,7 @@ missing = required_cols - set(data.columns)
 if missing:
     raise ValueError(f"Missing required columns: {sorted(missing)}")
 
-
-# In[4]:
-
-
-# ============================
 # Define column names (load + composition)
-# ============================
 load_col = "Load" 
 EXCLUDE = {"HV", load_col}
 numeric_cols = [c for c in data.columns if pd.api.types.is_numeric_dtype(data[c])]
@@ -79,9 +59,6 @@ elif min_val < 0:
 
 print(f"[Columns] load_col='{load_col}' | num composition cols={len(composition_cols)}")
 print(f"[Columns] composition_cols={composition_cols}")
-
-
-# In[5]:
 
 
 # ==========================
@@ -159,14 +136,9 @@ X_test_gp      = np.hstack([X_comp_test,      X_load_test]).astype(np.float64)
 print(f"[Split] Train_fit: {len(train_fit_idx)} | Cal: {len(cal_idx)} | Test: {len(test_idx)} | d_comp={X_comp_all.shape[1]}")
 
 
-# ## GP Regressor
-
-# In[6]:
-
-
-# ==================================================================
-# GP surrogate (standard) + Bayesian hyperparameter optimization
-# ==================================================================
+# =========================================================
+# GP surrogate + Bayesian hyperparameter optimization
+# =========================================================
 def fit_gp_fixed(kernel_amp, length_scale, noise_level, X_train, y_train,
                  alpha_jitter=1e-10, nu=2.5):
     kernel = (
@@ -224,12 +196,7 @@ gp_model = fit_gp_fixed(
 print("[GP baseline] Final fitted kernel:", gp_model.kernel_)
 
 
-# In[7]:
-
-
-# =========================================================
-# Fit the final GP on train_fit and save hyperparameters
-# =========================================================
+# Fit the final GP 
 gp_model = fit_gp_fixed(
     kernel_amp=best["kernel_amp"],
     length_scale=best["length_scale"],
@@ -261,9 +228,6 @@ with open("gpbo_gp_hyperparams.json", "w") as f:
 
 print("[GP baseline] Saved GP hyperparameters to gpbo_gp_hyperparams.json")
 print("[GP baseline] Fitted kernel:", gp_model.kernel_)
-
-
-# In[8]:
 
 
 # =================================================================================
@@ -318,7 +282,6 @@ with open("gp_metrics.json", "w") as f:
 print("[GP baseline] Metrics saved to gp_metrics.json")
 print("[GP baseline] TEST metrics:", gp_metrics["test"])
 
-# Save pointwise predictions
 cal_pred_df = pd.DataFrame({
     "split": "cal",
     "y_true_HV": y_cal,
@@ -387,103 +350,9 @@ plt.savefig("gp_parity_test_errorbars.png", dpi=300)
 plt.close()
 
 
-# In[9]:
-
-
-# ============================
-# Export plot-ready values
-# ============================
-z_arr = np.asarray(z_list, dtype=float)
-
-cov_cal_arr = np.asarray([coverage_cal[f"z={z:g}"] for z in z_arr], dtype=float)
-cov_test_arr = np.asarray([coverage_test[f"z={z:g}"] for z in z_arr], dtype=float)
-
-# Nominal Gaussian two-sided coverage for ± z sigma intervals
-nominal = 2.0 * st.norm.cdf(z_arr) - 1.0
-parity_test_df = pd.DataFrame({
-    "y_true_HV": y_test,
-    "mu_HV": mu_test,
-    "std_HV": std_test,
-    "mu_minus_1std": mu_test - std_test,
-    "mu_plus_1std":  mu_test + std_test,
-    "mu_minus_1p645std": mu_test - 1.645 * std_test,
-    "mu_plus_1p645std":  mu_test + 1.645 * std_test,
-    "mu_minus_1p96std": mu_test - 1.96 * std_test,
-    "mu_plus_1p96std":  mu_test + 1.96 * std_test,
-})
-parity_test_df.to_csv("origin_gp_parity_test.csv", index=False)
-
-# parity plot uncertainty
-parity_uncertainty_df = pd.DataFrame({
-    "y_true_HV": y_test,
-    "mu_HV": mu_test,
-    "std_HV": std_test,
-    "residual_HV": y_test - mu_test,
-    "abs_residual_HV": np.abs(y_test - mu_test),
-    "z_residual": (y_test - mu_test) / np.maximum(std_test, 1e-12),
-})
-parity_uncertainty_df.to_csv("origin_gp_parity_uncertainty_color_std.csv", index=False)
-
-# parity plot error-bar
-z_parity = 1.645
-N = len(y_test)
-max_points = 300
-
-if N > max_points:
-    idx = np.random.RandomState(seed).choice(np.arange(N), size=max_points, replace=False)
-else:
-    idx = np.arange(N)
-
-parity_errorbar_df = pd.DataFrame({
-    "y_true_HV": y_test[idx],
-    "mu_HV": mu_test[idx],
-    "std_HV": std_test[idx],
-    "yerr_zstd": z_parity * std_test[idx],     # use as Y error in Origin
-    "mu_minus_zstd": mu_test[idx] - z_parity * std_test[idx],
-    "mu_plus_zstd":  mu_test[idx] + z_parity * std_test[idx],
-})
-parity_errorbar_df.to_csv("origin_gp_parity_errorbars_subset.csv", index=False)
-
-# Existing exports
-residuals_test_df = pd.DataFrame({
-    "mu_HV": mu_test,
-    "residual_HV": y_test - mu_test,
-    "abs_residual_HV": np.abs(y_test - mu_test),
-    "std_HV": std_test,
-    "z_residual": (y_test - mu_test) / np.maximum(std_test, 1e-12),
-})
-residuals_test_df.to_csv("origin_gp_residuals_test.csv", index=False)
-
-std_vs_absres_test_df = pd.DataFrame({
-    "std_HV": std_test,
-    "abs_residual_HV": np.abs(y_test - mu_test),
-    "residual_HV": y_test - mu_test,
-    "mu_HV": mu_test,
-    "y_true_HV": y_test,
-})
-std_vs_absres_test_df.to_csv("origin_gp_std_vs_absres_test.csv", index=False)
-
-coverage_curve_df = pd.DataFrame({
-    "z": z_arr,
-    "coverage_cal": cov_cal_arr,
-    "coverage_test": cov_test_arr,
-    "coverage_nominal_gaussian": nominal,
-})
-coverage_curve_df.to_csv("origin_gp_coverage_curve.csv", index=False)
-
-print("[Origin export] Wrote:",
-      "origin_gp_parity_test.csv, origin_gp_parity_uncertainty_color_std.csv, origin_gp_parity_errorbars_subset.csv, "
-      "origin_gp_residuals_test.csv, origin_gp_std_vs_absres_test.csv, origin_gp_coverage_curve.csv")
-
-
-# # Inverse Design
-
-# In[10]:
-
-
-# ======================================
-# GP-BO inverse design at fixed load
-# ======================================
+# ==========================
+# GP-BO inverse design
+# ==========================
 SEQUENTIAL_UPDATE = True
 FANTASY_MODE = "posterior_sample"
 REFIT_EVERY = 1
@@ -609,9 +478,6 @@ def objective_minus_lcb_with_trust_and_repulsion(u: np.ndarray, X_seen_mat: np.n
     return float(base + trust_penalty(x) + repulsion_penalty(x, X_seen_mat))
 
 
-# In[11]:
-
-
 # ==========================================
 # Acquisition optimization (multi-start)
 # ==========================================
@@ -666,10 +532,6 @@ def propose_next(X_seen_mat: np.ndarray):
     return x_best, float(mu_best[0]), float(std_best[0]), float(lcb_best), info
 
 
-# In[12]:
-
-
-# Sequential refit: refit GP on augmented (X_obs_gp, y_obs) using fixed hyperparameters
 def refit_gp_on_augmented_data(X_obs_gp: np.ndarray, y_obs: np.ndarray):
     return fit_gp_fixed(
         kernel_amp=float(best_gp_params["kernel_amp"]),
@@ -682,13 +544,10 @@ def refit_gp_on_augmented_data(X_obs_gp: np.ndarray, y_obs: np.ndarray):
     )
 
 
-# In[13]:
-
-
-# ==============================
-# Run BO loop (fixed budget)
-# ==============================
-T = 300
+# ================
+# Run BO loop
+# ================
+T = 200
 
 X_obs_gp = X_train_fit_gp.copy()
 y_obs = y_train_fit.copy().reshape(-1)
@@ -732,7 +591,6 @@ trace_df = pd.DataFrame(trace_rows)
 trace_df.to_csv("gpbo_trace_L1N.csv", index=False)
 trace_df.to_csv("origin_gpbo_trace_L1N.csv", index=False)
 
-# De-duplicate candidates and rank by LCB under FINAL gp_model
 X_seen = np.asarray(X_seen, dtype=np.float64)
 X_round = np.round(X_seen, 6)
 _, unique_idx = np.unique(X_round, axis=0, return_index=True)
@@ -764,10 +622,6 @@ TOPN = min(50, len(cand_df))
 cand_df.head(TOPN).to_csv("origin_gpbo_top_candidates_L1N.csv", index=False)
 
 print("[GP-BO @1N] Saved: gpbo_anchors_L1N.csv, gpbo_trace_L1N.csv, gpbo_candidates_L1N.csv")
-
-
-# In[14]:
-
 
 # ====================
 # Visualizations
@@ -846,7 +700,6 @@ pd.DataFrame({"dist_to_nearest_trainfit_L2_proposals": d_to_trainfit_all}).to_cs
     "gpbo_cluster_distances_all_proposals.csv", index=False
 )
 
-# reference NN spacing within train_fit (subsample to avoid O(n^2) blow-up)
 subN = min(600, train_fit_comps.shape[0])
 rng2 = np.random.RandomState(seed + 999)
 sub_idx = rng2.choice(np.arange(train_fit_comps.shape[0]), size=subN, replace=False)
@@ -870,26 +723,3 @@ plt.legend()
 plt.tight_layout()
 plt.savefig("gpbo_hist_proposals_vs_trainfit_spacing.png", dpi=300)
 plt.close()
-
-print("[GP-BO diagnostics] Saved:",
-      "gpbo_diagnostics_topM.csv, gpbo_hist_novelty_topM.png, gpbo_hist_sigma_topM.png, "
-      "gpbo_cluster_distances_all_proposals.csv, gpbo_trainfit_nn_reference.csv, gpbo_hist_proposals_vs_trainfit_spacing.png")
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
