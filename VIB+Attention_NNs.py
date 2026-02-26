@@ -1,9 +1,3 @@
-#!/usr/bin/env python
-# coding: utf-8
-
-# In[1]:
-
-
 # Import Libraries
 import pandas as pd
 import numpy as np
@@ -51,28 +45,16 @@ from sklearn.utils import shuffle
 import csv
 import json
 
-
-# In[2]:
-
-
-# Introduce fixed seed
+# Introduce fixed seed (run for 10 seeds and average the whole pipeline)
 seed = 1
 random.seed(seed)
 np.random.seed(seed)
 tf.random.set_seed(seed)
 
-
-# In[3]:
-
-
 # Data Ingestion
 data = pd.read_csv('H_v_dataset.csv')
 print("\nBasic Statistics:")
 print(data.describe())
-
-
-# In[4]:
-
 
 composition_cols = [col for col in data.columns if col not in ['Load', 'HV']]
 load_col = 'Load'
@@ -81,7 +63,6 @@ target_col = 'HV'
 # Hardness Distribution Plot
 plt.style.use('default')
 sns.set_context("talk")
-
 plt.figure(figsize=(10, 8))
 sns.histplot(data['HV'], kde=True, color='grey', bins=15, edgecolor='black')
 plt.xlabel('Hardness (HV)', fontsize=26)
@@ -95,10 +76,6 @@ for spine in plt.gca().spines.values():
     spine.set_linewidth(2)
 plt.savefig("Distribution of Hardness (HV).jpg", dpi=600, format='jpeg')
 plt.show()
-
-
-# In[5]:
-
 
 # Hardness-Load Plot
 plt.figure(figsize=(10, 8))
@@ -116,12 +93,9 @@ plt.savefig("Relationship Between Load and Hardness (HV).jpg", dpi=600, format='
 plt.show()
 
 
-# In[6]:
-
-
-# ============================
+# =========================================================
 # Data Preparation (with family-aware debiasing weights)
-# ============================
+# =========================================================
 X_comp_all = data[composition_cols].values.astype(np.float32)
 row_sum = X_comp_all.sum(axis=1, keepdims=True)
 row_sum = np.where(row_sum <= 0, 1.0, row_sum)
@@ -162,7 +136,6 @@ def make_sample_weight_dict(w: np.ndarray) -> dict:
         "Load_Attention": np.ones_like(w, dtype=np.float32),
     }
 
-# Stratification labels that respect BOTH composition geometry and family imbalance
 n_clusters = 4
 kmeans = KMeans(n_clusters=n_clusters, random_state=seed)
 cluster_labels = kmeans.fit_predict(X_comp_all)
@@ -192,7 +165,6 @@ X_load_test_raw  = X_load_all_raw[test_idx].astype(np.float32)
 y_train = y_all[train_idx].astype(np.float32)
 y_test  = y_all[test_idx].astype(np.float32)
 
-# weights aligned to splits (use later in model.fit via sample_weight)
 w_train = w_all[train_idx].astype(np.float32)
 w_test  = w_all[test_idx].astype(np.float32)
 
@@ -217,15 +189,6 @@ plt.ylabel("Mean Fraction")
 plt.title("Elemental Fraction Distribution: Train vs Test")
 plt.tight_layout()
 plt.show()
-
-# (Optional) quick audit prints
-print("[Debias] Unique families:", len(family_counts))
-print("[Debias] B-Fe-Nb-only rows:", int(is_bfenb_only.sum()))
-print("[Debias] Weight stats (min/median/max):",
-      float(w_all.min()), float(np.quantile(w_all, 0.5)), float(w_all.max()))
-
-
-# In[7]:
 
 
 # ============================
@@ -253,14 +216,9 @@ X_comp_test = X_comp_all[test_idx].astype(np.float32)
 X_load_test_raw = X_load_all_raw[test_idx].astype(np.float32)
 y_test_arr = y_all[test_idx].astype(np.float32).reshape(-1)
 
-# Debias weights aligned to these splits (used later in model.fit sample_weight)
 w_train_fit = w_all[train_fit_idx].astype(np.float32)
 w_cal       = w_all[cal_idx].astype(np.float32)
 w_test      = w_all[test_idx].astype(np.float32)
-
-
-# In[8]:
-
 
 debias_audit = pd.DataFrame({
     "family_key": [",".join(list(k)) for k in family_keys],
@@ -278,11 +236,9 @@ family_summary = (
 family_summary.to_csv("debias_family_counts.csv", index=False)
 
 
-# ## VIBANN Model
-
-# In[9]:
-
-
+# ===================================
+# VIBANN Model Architecture
+# ===================================
 # VIB Layer
 class VIBLayer(layers.Layer):
     def __init__(self, latent_dim=16, beta_init=1e-3, eps=1e-8, **kwargs):
@@ -326,9 +282,6 @@ class VIBLayer(layers.Layer):
         self.add_loss(self.beta * tf.cast(kl_per_dim_mean, tf.float32))
 
         return z
-
-
-# In[10]:
 
 
 # Feature-Wise Attention Layer
@@ -435,9 +388,9 @@ class AttentionScoreLogger(tf.keras.callbacks.Callback):
             writer.writerow([epoch + 1] + all_attention_scores.tolist())
 
 
-# In[11]:
-
-
+# ------------------------
+# Other helpers
+# ------------------------
 class PairwiseProducts(tf.keras.layers.Layer):
     def __init__(self, n_features: int, **kwargs):
         super().__init__(**kwargs)
@@ -475,9 +428,6 @@ class PairwiseProducts(tf.keras.layers.Layer):
         return cfg
 
 
-# In[12]:
-
-
 class MCDropout(tf.keras.layers.Dropout):
     def __init__(self, rate, mc_active=True, **kwargs):
         super().__init__(rate, **kwargs)
@@ -493,9 +443,6 @@ class MCDropout(tf.keras.layers.Dropout):
         return super().call(inputs, training=self.mc_active)
 
 
-# In[13]:
-
-
 def set_mc_dropout(model: tf.keras.Model, active: bool) -> None:
     active = bool(active)
 
@@ -509,9 +456,6 @@ def set_mc_dropout(model: tf.keras.Model, active: bool) -> None:
 
     for lyr in model.layers:
         _recurse(lyr)
-
-
-# In[14]:
 
 
 # -------------------------
@@ -622,12 +566,7 @@ def build_vib_attention_model(
     return model
 
 
-# In[15]:
-
-
-# -------------------------
 # Adaptive Beta Callback
-# -------------------------
 class AdaptiveBetaCallback(tf.keras.callbacks.Callback):
     def __init__(self, vib_layer, target_kl_per_dim=0.15, beta_adjustment_factor=1.05,
                  beta_min=1e-6, beta_max=1e+2, verbose=1):
@@ -655,9 +594,7 @@ class AdaptiveBetaCallback(tf.keras.callbacks.Callback):
             print(f"Epoch {epoch+1}: kl_per_dim={kl:.6f}, beta={beta_new:.6e}")
 
 
-# In[16]:
-
-
+# beta adjustment
 def adjust_beta(vib_layer, kl_per_dim_mean, target_kl_per_dim=0.15, beta_adjustment_factor=1.05, beta_min=1e-6, beta_max=1e2):
     kl_per_dim_mean = float(kl_per_dim_mean)
 
@@ -669,10 +606,6 @@ def adjust_beta(vib_layer, kl_per_dim_mean, target_kl_per_dim=0.15, beta_adjustm
     new_beta = float(np.clip(new_beta, beta_min, beta_max))
     vib_layer.beta.assign(new_beta)
     return new_beta
-
-
-# In[17]:
-
 
 class BetaKLController(tf.keras.callbacks.Callback):
     def __init__(self, vib_layer, target_kl_per_dim=0.15, beta_adjustment_factor=1.05,
@@ -715,9 +648,6 @@ class BetaKLController(tf.keras.callbacks.Callback):
             logs["beta_epoch"] = beta_now
 
 
-# In[18]:
-
-
 def predict_mc_mean_std(model, X_comp, X_load_scaled, S=50, batch_size=512, seed=0, return_samples=True):
     X_comp = np.asarray(X_comp, dtype=np.float32)
     X_load_scaled = np.asarray(X_load_scaled, dtype=np.float32)
@@ -745,9 +675,6 @@ def predict_mc_mean_std(model, X_comp, X_load_scaled, S=50, batch_size=512, seed
     if return_samples:
         return mu, sig, samples
     return mu, sig
-
-
-# In[19]:
 
 
 def mc_mean_attention_scores(
@@ -806,9 +733,6 @@ def mc_mean_attention_scores(
     return comp_att_mean, load_att_mean, comp_att_std, load_att_std
 
 
-# In[20]:
-
-
 # ============================
 # Model Training
 # ============================
@@ -817,7 +741,6 @@ k_outer    = 5
 n_trials   = 50
 batch_size = 32
 
-# Canonical shaping helper
 def ensure_2d_col(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float32)
     return x.reshape(-1, 1) if x.ndim == 1 else x
@@ -828,9 +751,6 @@ def normalize_simplex_np(x, eps=1e-8):
     s[s < eps] = 1.0
     return x / s
 
-# -----------------------------------------------------------------------------
-# Sample-weight helper (dict aligned to named outputs)
-# -----------------------------------------------------------------------------
 def make_sample_weight_dict(w: np.ndarray) -> dict:
     w = np.asarray(w, dtype=np.float32).reshape(-1)
     ones = np.ones_like(w, dtype=np.float32)
@@ -841,12 +761,10 @@ def make_sample_weight_dict(w: np.ndarray) -> dict:
         "Load_Attention": ones,
     }
 
-# Training set
 X_comp_train_full      = np.asarray(X_comp_train_fit, dtype=np.float32)
 X_load_train_full_raw  = ensure_2d_col(X_load_train_fit_raw)
 y_train_full           = np.asarray(y_train_fit, dtype=np.float32).reshape(-1)
 
-# Debias weights aligned to the "train_fit" pool used for CV
 w_train_full = np.asarray(w_all[train_fit_idx], dtype=np.float32).reshape(-1)
 
 cluster_labels_train = np.asarray(cluster_labels[train_fit_idx])
@@ -879,7 +797,6 @@ fold_results = {
     "kl_per_dim_traces": [],
 }
 
-# Inner tuning split (within fold-train only)
 inner_split = StratifiedShuffleSplit(n_splits=1, test_size=0.2, random_state=seed)
 
 for fold, (tr_i, va_i) in enumerate(skf.split(X_comp_train_full, cluster_labels_train), start=1):
@@ -897,7 +814,6 @@ for fold, (tr_i, va_i) in enumerate(skf.split(X_comp_train_full, cluster_labels_
     y_tr_full = y_train_full[tr_i].astype(np.float32).reshape(-1)
     y_va_full = y_train_full[va_i].astype(np.float32).reshape(-1)
 
-    # Debias weights aligned to this outer-fold train/val split
     w_tr_full = w_train_full[tr_i].astype(np.float32).reshape(-1)
     w_va_full = w_train_full[va_i].astype(np.float32).reshape(-1)
 
@@ -916,7 +832,6 @@ for fold, (tr_i, va_i) in enumerate(skf.split(X_comp_train_full, cluster_labels_
     fold_results["load_scaler_mean"].append(scaler_load_fold.mean_.copy())
     fold_results["load_scaler_scale"].append(scaler_load_fold.scale_.copy())
 
-    # Targets
     comp_target_tr_full = normalize_simplex_np(X_comp_tr)
     comp_target_va_full = normalize_simplex_np(X_comp_va)
 
@@ -929,7 +844,6 @@ for fold, (tr_i, va_i) in enumerate(skf.split(X_comp_train_full, cluster_labels_
     dummy_comp_va_full = np.zeros((X_comp_va.shape[0], X_comp_va.shape[1]), dtype=np.float32)
     dummy_load_va_full = np.zeros((X_load_va.shape[0], X_load_va.shape[1]), dtype=np.float32)
 
-    # Inner split uses only fold-train (X_comp_tr)
     cluster_labels_fold_tr = cluster_labels_train[tr_i]
     tr_in_idx, va_in_idx = next(inner_split.split(X_comp_tr, cluster_labels_fold_tr))
 
@@ -961,9 +875,7 @@ for fold, (tr_i, va_i) in enumerate(skf.split(X_comp_train_full, cluster_labels_
     load_target_in_tr = Xl_in_tr
     load_target_in_va = Xl_in_va
 
-    # -------------------------------------------------------------------------
-    # Optuna objective
-    # -------------------------------------------------------------------------
+    # Optuna objective (VIBANN Architechture Hyperparameters tuning)
     def objective(trial):
         tf.keras.backend.clear_session()
 
@@ -1064,9 +976,9 @@ for fold, (tr_i, va_i) in enumerate(skf.split(X_comp_train_full, cluster_labels_
 
     print(f"Fold {fold}: best_latent_dim={best_latent_dim_fold}, best_dropout={best_dropout_rate_fold:.3f}")
 
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------
     # Train fold-final model ON FULL fold-train
-    # -------------------------------------------------------------------------
+    # ------------------------------------------------
     tf.keras.backend.clear_session()
 
     vib_attention_model = build_vib_attention_model(
@@ -1213,7 +1125,6 @@ final_dropout = float(np.clip(final_dropout, 0.05, 0.30))
 
 print(f"\n[FINAL] selected from best fold {best_fold_idx+1}: latent_dim={final_latent_dim}, dropout={final_dropout:.3f}")
 
-# Final load scaler
 scaler_load_final = StandardScaler()
 scaler_load_final.fit(ensure_2d_col(X_load_train_fit_raw))
 
@@ -1221,7 +1132,6 @@ X_load_train_fit = scaler_load_final.transform(ensure_2d_col(X_load_train_fit_ra
 X_load_cal       = scaler_load_final.transform(ensure_2d_col(X_load_cal_raw)).astype(np.float32)
 X_load_test      = scaler_load_final.transform(ensure_2d_col(X_load_test_raw)).astype(np.float32)
 
-# Final y scaler
 y_train_fit_arr = np.asarray(y_train_fit, dtype=np.float32).reshape(-1)
 y_cal_arr       = np.asarray(y_cal, dtype=np.float32).reshape(-1)
 
@@ -1231,7 +1141,6 @@ y_sd_final = float(y_train_fit_arr.std() + 1e-8)
 y_train_fit_s = ((y_train_fit_arr - y_mu_final) / y_sd_final).astype(np.float32)
 y_cal_s       = ((y_cal_arr       - y_mu_final) / y_sd_final).astype(np.float32)
 
-# Recon targets
 comp_target_train_fit = normalize_simplex_np(np.asarray(X_comp_train_fit, dtype=np.float32))
 comp_target_cal       = normalize_simplex_np(np.asarray(X_comp_cal, dtype=np.float32))
 
@@ -1311,17 +1220,16 @@ final_model.fit(
     verbose=1,
 )
 
-# Save deployables
+# Save models
 final_model.save("vib_attention_FINAL_model.keras")
 np.savez("load_scaler_FINAL.npz", mean=scaler_load_final.mean_, scale=scaler_load_final.scale_)
 np.savez("y_scaler_FINAL.npz", mean=y_mu_final, scale=y_sd_final)
-
 print("Saved: vib_attention_FINAL_model.keras, load_scaler_FINAL.npz, y_scaler_FINAL.npz")
 
 
-# In[21]:
-
-
+# ========================
+# Visualizatons
+# ========================
 plt.figure(figsize=(10, 8))
 for i in range(k_outer):
     tr = fold_results["train_output_losses"][i]
@@ -1336,31 +1244,6 @@ plt.legend()
 plt.grid(True)
 plt.tight_layout()
 plt.show()
-
-
-# In[22]:
-
-
-k = len(fold_results["val_output_losses"])
-
-for i in range(k):
-    tr = fold_results["train_output_losses"][i]
-    va = fold_results["val_output_losses"][i]
-
-    n_epochs = min(len(tr), len(va))
-
-    df = pd.DataFrame({
-        "Epoch": np.arange(1, n_epochs + 1),
-        "Train_Output_Layer_MSE_yScaled": tr[:n_epochs],
-        "Val_Output_Layer_MSE_yScaled": va[:n_epochs],
-    })
-
-    csv_filename = f"Learning_Curve_OutputLayer_Fold_{i+1}.csv"
-    df.to_csv(csv_filename, index=False)
-    print(f"Saved: {csv_filename}")
-
-
-# In[23]:
 
 
 # Plot Training and Validation Loss for best fold
@@ -1396,30 +1279,7 @@ plt.savefig("Model_Training_and_Validation_Loss_Over_Epochs.jpeg", dpi=600, form
 plt.show()
 
 
-# In[24]:
-
-
-best_fold_idx = int(np.argmax(fold_results["r2_scores"]))
-
-train_out = fold_results["train_output_losses"][best_fold_idx]
-val_out   = fold_results["val_output_losses"][best_fold_idx]
-
-min_len = min(len(train_out), len(val_out))
-
-loss_df = pd.DataFrame({
-    "Epoch": np.arange(1, min_len + 1),
-    "Train_Output_Layer_MSE": train_out[:min_len],
-    "Val_Output_Layer_MSE":   val_out[:min_len],
-})
-
-out_xlsx = "training_validation_outputlayer_mse_VIBANN.xlsx"
-loss_df.to_excel(out_xlsx, index=False)
-print(f"Export completed: {out_xlsx}")
-
-
-# In[25]:
-
-
+# beta values plot
 best_fold_idx = int(np.argmax(fold_results["r2_scores"]))
 beta_values = np.asarray(fold_results["beta_traces"][best_fold_idx], dtype=np.float64)
 
@@ -1439,67 +1299,7 @@ plt.savefig("beta_value_dynamics_during_training.jpeg", dpi=600, format='jpeg')
 plt.show()
 
 
-# In[26]:
-
-
-beta_values = np.asarray(beta_controller_final.beta_trace, dtype=np.float64)
-beta_df = pd.DataFrame({
-    "Epoch": np.arange(1, beta_values.size + 1, dtype=int),
-    "Beta_Value": beta_values
-})
-beta_df.to_excel("Beta_Values_FinalModel.xlsx", index=False)
-print("Exported: Beta_Values_FinalModel.xlsx")
-
-
-# In[27]:
-
-
-best_fold_idx = int(np.argmax(fold_results["r2_scores"]))
-beta_vals = np.asarray(fold_results["beta_traces"][best_fold_idx], dtype=np.float64)
-kl_vals = np.asarray(fold_results["kl_per_dim_traces"][best_fold_idx], dtype=np.float64)
-
-n = int(min(beta_vals.size, kl_vals.size))
-beta_vals = beta_vals[:n]
-kl_vals   = kl_vals[:n]
-epochs    = np.arange(1, n + 1, dtype=int)
-
-fig, ax1 = plt.subplots(figsize=(10, 8))
-
-ax1.plot(epochs, beta_vals, linewidth=3, marker=".", markersize=3)
-ax1.set_xlabel("Epochs", fontsize=22, weight="bold", color="black")
-ax1.set_ylabel(r"$\beta$ (KL weight)", fontsize=22, weight="bold", color="black")
-ax1.tick_params(axis="both", which="major", labelsize=18, color="black")
-ax1.grid(False)
-for spine in ax1.spines.values():
-    spine.set_edgecolor("black")
-    spine.set_linewidth(2)
-
-ax2 = ax1.twinx()
-ax2.plot(epochs, kl_vals, linewidth=3, marker=".", markersize=3, linestyle="--")
-ax2.set_ylabel("KL per dim (epoch mean)", fontsize=22, weight="bold", color="black")
-ax2.tick_params(axis="y", which="major", labelsize=18, color="black")
-for spine in ax2.spines.values():
-    spine.set_edgecolor("black")
-    spine.set_linewidth(2)
-
-plt.tight_layout()
-plt.savefig("beta_and_kl_dynamics_best_fold.jpeg", dpi=600, format="jpeg")
-plt.show()
-
-df = pd.DataFrame({
-    "Epoch": epochs,
-    "Beta_Value": beta_vals,
-    "KL_per_dim_epoch_mean": kl_vals
-})
-df.to_csv("beta_and_kl_dynamics_best_fold.csv", index=False)
-print("Saved: beta_and_kl_dynamics_best_fold.jpeg")
-print("Saved: beta_and_kl_dynamics_best_fold.csv")
-
-
-# In[28]:
-
-
-# Use hardness-only validation loss (most interpretable)
+# Validation loss over folds
 avg_val_hv = [float(np.mean(x)) for x in fold_results["val_output_losses"]]
 std_val_hv = [float(np.std(x))  for x in fold_results["val_output_losses"]]
 
@@ -1522,9 +1322,6 @@ plt.grid(False)
 plt.tight_layout()
 plt.savefig("Val_HV_Loss_vs_Fold.jpeg", dpi=600, format="jpeg")
 plt.show()
-
-
-# In[29]:
 
 
 # Plot RMSE vs folds
@@ -1556,35 +1353,6 @@ plt.savefig("Val_RMSE_vs_Fold_MCmean.jpeg", dpi=600, format="jpeg")
 plt.show()
 
 print(f"CV RMSE: {rmse_mean:.3f} ± {rmse_std:.3f} (HV)")
-
-
-# In[30]:
-
-
-# Export to CSV
-k = len(fold_results["train_losses"])
-fold_ids = np.arange(1, k + 1)
-
-# Recompute here to avoid stale variables / length mismatches
-avg_train_losses = [float(np.mean(losses)) for losses in fold_results["train_losses"]]
-std_train_losses = [float(np.std(losses, ddof=1)) if len(losses) > 1 else 0.0 for losses in fold_results["train_losses"]]
-
-avg_val_losses = [float(np.mean(losses)) for losses in fold_results["val_losses"]]
-std_val_losses = [float(np.std(losses, ddof=1)) if len(losses) > 1 else 0.0 for losses in fold_results["val_losses"]]
-
-summary_df = pd.DataFrame({
-    "Fold": fold_ids,
-    "Avg_Train_Loss": avg_train_losses,
-    "Std_Train_Loss": std_train_losses,
-    "Avg_Val_Loss": avg_val_losses,
-    "Std_Val_Loss": std_val_losses
-})
-
-summary_df.to_csv("Train_Val_Loss_Summary_Per_Fold.csv", index=False)
-print("Exported: Train_Val_Loss_Summary_Per_Fold.csv")
-
-
-# In[31]:
 
 
 # =====================
@@ -1632,12 +1400,9 @@ with open(META_PATH, "w") as f:
 print(f"Saved metadata: {META_PATH}")
 
 
-# In[32]:
-
-
-# ============================
-# MC Dropout sampling helper
-# ============================
+# =======================================
+# Monte-Carlo Dropout sampling helpers
+# =======================================
 def _extract_output_layer(out):
     if isinstance(out, dict):
         return out["Output_Layer"]
@@ -1675,9 +1440,6 @@ def mc_dropout_samples(model, X_comp, X_load_scaled, num_samples=200, batch_size
     return samples
 
 
-# In[33]:
-
-
 def bootstrap_rmse_ci(y_true, y_pred_samples, n_bootstrap=1000, ci=0.95, seed=1):
     y_true = np.asarray(y_true, dtype=np.float64).reshape(-1)
     y_pred_samples = np.asarray(y_pred_samples, dtype=np.float64)
@@ -1710,12 +1472,9 @@ def bootstrap_rmse_ci(y_true, y_pred_samples, n_bootstrap=1000, ci=0.95, seed=1)
     return rmse_point, rmse_boot_mean, lower, upper, rmse_list
 
 
-# In[34]:
-
-
-# ============================
-# MC Dropout UQ (FINAL model) — FIXED (invert y-scaling)
-# ============================
+# ==================================
+# MC Dropout UQ (FINAL model)
+# ==================================
 S = 100
 
 X_load_test_scaled = np.asarray(X_load_test, dtype=np.float32).reshape(-1, 1)
@@ -1771,12 +1530,10 @@ print(f"Test RMSE (MC-mean predictor, HV): {rmse_point:.4f}")
 print(f"Bootstrap RMSE mean: {rmse_boot_mean:.4f} (95% CI: [{rmse_lower:.4f}, {rmse_upper:.4f}])")
 
 
-# In[35]:
-
-
-# ============================
+# ====================
+# Visualizations
+# ====================
 # Predicted vs Actual Hardness with MC Prediction Intervals (HV space)
-# ============================
 y_test_arr  = np.asarray(y_test_hv, dtype=np.float32).reshape(-1)
 y_pred_mean = np.asarray(y_pred_mean_hv, dtype=np.float32).reshape(-1)
 y_lo        = np.asarray(y_lo_hv, dtype=np.float32).reshape(-1)
@@ -1827,24 +1584,7 @@ plt.savefig(f"pred_vs_actual_with_MC_PI_{int(ALPHA*100)}.jpeg", dpi=600, format=
 plt.show()
 
 
-# In[36]:
-
-
-plot_data = pd.DataFrame({
-    "Actual_HV":       np.asarray(y_test_hv, dtype=np.float32).reshape(-1),
-    "Pred_Mean_HV":    np.asarray(y_pred_mean_hv, dtype=np.float32).reshape(-1),
-    "Pred_PI_Lo_HV":   np.asarray(y_lo_hv, dtype=np.float32).reshape(-1),
-    "Pred_PI_Hi_HV":   np.asarray(y_hi_hv, dtype=np.float32).reshape(-1),
-    "Pred_Std_HV":     np.asarray(y_pred_samples_hv, dtype=np.float32).std(axis=0).reshape(-1),
-    "PI_Width_HV":     (np.asarray(y_hi_hv, dtype=np.float32) - np.asarray(y_lo_hv, dtype=np.float32)).reshape(-1),
-})
-plot_data.to_csv(f"pred_vs_actual_with_MC_PI_{int(ALPHA*100)}.csv", index=False)
-
-
-# In[37]:
-
-
-# Uncertainty distribution: use PI width or sigma (no /2 hacks)
+# Uncertainty distribution: use PI width or sigma
 y_lo_arr = np.asarray(y_lo, dtype=np.float32).reshape(-1)
 y_hi_arr = np.asarray(y_hi, dtype=np.float32).reshape(-1)
 
@@ -1869,12 +1609,7 @@ plt.tight_layout()
 plt.savefig(f"distribution_PI_width_{int(ALPHA*100)}.jpeg", dpi=600, format='jpeg')
 plt.show()
 
-pd.DataFrame({"pi_width": pi_width}).to_csv(
-    f"distribution_PI_width_{int(ALPHA*100)}.csv", index=False
 )
-
-
-# In[38]:
 
 
 # Frequency vs. RMSE
@@ -1895,22 +1630,9 @@ plt.tight_layout()
 plt.savefig("bootstrap_rmse_distribution.jpeg", dpi=600, format="jpeg")
 plt.show()
 
-hist_df = pd.DataFrame({
-    "bin_left": bin_edges[:-1],
-    "bin_right": bin_edges[1:],
-    "bin_center": 0.5 * (bin_edges[:-1] + bin_edges[1:]),
-    "density": counts,
-})
-hist_df.to_csv("bootstrap_rmse_histogram.csv", index=False)
-
-pd.DataFrame({"rmse_bootstrap": rmse_arr}).to_csv("bootstrap_rmse_samples.csv", index=False)
-
-
-# In[39]:
-
 
 # ============================
-# Metrics
+# Final Metrics
 # ============================
 y_true = np.asarray(y_test_arr, dtype=np.float32).reshape(-1)
 y_pred_mean_vec = np.asarray(y_pred_mean, dtype=np.float32).reshape(-1)
@@ -1961,12 +1683,9 @@ print(f"Test MAPE: {mape:.4f}")
 print(f"Tail metrics (y >= q{int(q*100)}={thr:.3f}, n={int(np.sum(tail))}): RMSE={rmse_tail:.4f}, MAE={mae_tail:.4f}")
 
 
-# In[40]:
-
-
-# ============================
-# Attention: MC-averaged
-# ============================
+# =================================
+# Attention Scores: MC-averaged
+# =================================
 def scale_load_np(x_raw, scaler, dtype=np.float32):
     x = np.asarray(x_raw, dtype=dtype)
     if x.ndim == 1:
@@ -1991,7 +1710,6 @@ comp_att_mean, load_att_mean, comp_att_std, load_att_std = mc_mean_attention_sco
     seed=seed
 )
 
-# Validate dimensions
 feature_names = list(composition_cols)
 comp_att_mean = np.asarray(comp_att_mean, dtype=np.float32).reshape(-1)
 comp_att_std  = np.asarray(comp_att_std,  dtype=np.float32).reshape(-1)
@@ -2002,7 +1720,6 @@ if comp_att_mean.shape[0] != len(feature_names):
         "Check FeatureWiseAttention(n_features=...) wiring."
     )
 
-# Plot (mean attention) + optional uncertainty bars
 plt.figure(figsize=(14, 6))
 plt.bar(feature_names, comp_att_mean, edgecolor="black", linewidth=1.0)
 
@@ -2031,24 +1748,388 @@ plt.tight_layout()
 plt.savefig("Average_Attention_Weights_for_Composition_Features_MCmean.jpeg", dpi=600, format="jpeg")
 plt.show()
 
-attention_df = pd.DataFrame({
-    "Feature": feature_names,
-    "MC_Mean_Attention": comp_att_mean,
-    "MC_Std_Attention": comp_att_std,
-}).sort_values(by="MC_Mean_Attention", ascending=False).reset_index(drop=True)
 
-attention_df.to_csv("Average_Attention_Scores_MCmean.csv", index=False)
-print("Exported: Average_Attention_Scores_MCmean.csv")
+# ============================
+# Integrated Gradients
+# ============================
+required = [
+    "final_model",
+    "scaler_load_final",
+    "composition_cols",
+    "X_comp_train_fit",
+    "X_load_train_fit_raw",
+    "X_comp_cal",
+    "X_load_cal_raw",
+    "seed",
+]
+for name in required:
+    if name not in globals():
+        raise RuntimeError(f"Missing required object: {name}")
 
+def ensure_2d_col_np(x: np.ndarray) -> np.ndarray:
+    x = np.asarray(x, dtype=np.float32)
+    if x.ndim == 1:
+        x = x.reshape(-1, 1)
+    if x.ndim != 2 or x.shape[1] != 1:
+        raise ValueError(f"Expected (N,1). Got {x.shape}.")
+    return x
 
-# # Latent Space Analysis
+def scale_load_final_np(x_raw: np.ndarray, scaler) -> np.ndarray:
+    x_raw = ensure_2d_col_np(x_raw)
+    return scaler.transform(x_raw).astype(np.float32)
 
-# In[41]:
+def _model_output_to_tensor(out):
+    """Unify model output into a float32 tensor."""
+    if isinstance(out, dict):
+        out = out["Output_Layer"]
+    elif isinstance(out, (list, tuple)):
+        out = out[0]
+    return tf.convert_to_tensor(out, dtype=tf.float32)
+
+def integrated_gradients(
+    model: tf.keras.Model,
+    baseline_inputs,
+    input_inputs,
+    steps: int = 200,
+):
+    """
+    Returns IG attributions for each input tensor (comp, load).
+    Robust to disconnected graphs: if gradient is None, attribution is 0 for that input.
+    BN-safe: always calls model(..., training=False).
+    """
+    if steps < 2:
+        raise ValueError("steps must be >= 2")
+
+    baseline_comp, baseline_load = baseline_inputs
+    input_comp, input_load       = input_inputs
+
+    baseline_comp = tf.cast(baseline_comp, tf.float32)
+    baseline_load = tf.cast(baseline_load, tf.float32)
+    input_comp    = tf.cast(input_comp, tf.float32)
+    input_load    = tf.cast(input_load, tf.float32)
+
+    baseline_comp = tf.reshape(baseline_comp, (1, -1))
+    input_comp    = tf.reshape(input_comp, (1, -1))
+    baseline_load = tf.reshape(baseline_load, (1, 1))
+    input_load    = tf.reshape(input_load, (1, 1))
+
+    alphas = tf.linspace(0.0, 1.0, steps + 1)
+
+    acc_comp = tf.zeros_like(input_comp, dtype=tf.float32)
+    acc_load = tf.zeros_like(input_load, dtype=tf.float32)
+
+    prev_g_comp = None
+    prev_g_load = None
+
+    for a in alphas:
+        comp_a = baseline_comp + a * (input_comp - baseline_comp)
+        load_a = baseline_load + a * (input_load - baseline_load)
+
+        with tf.GradientTape() as tape:
+            tape.watch([comp_a, load_a])
+            out = model([comp_a, load_a], training=False)
+            out = _model_output_to_tensor(out)
+            obj = tf.reduce_sum(out)
+
+        g_comp, g_load = tape.gradient(obj, [comp_a, load_a])
+
+        if g_comp is None:
+            g_comp = tf.zeros_like(comp_a, dtype=tf.float32)
+        if g_load is None:
+            g_load = tf.zeros_like(load_a, dtype=tf.float32)
+
+        if prev_g_comp is not None:
+            acc_comp += 0.5 * (prev_g_comp + g_comp)
+            acc_load += 0.5 * (prev_g_load + g_load)
+
+        prev_g_comp, prev_g_load = g_comp, g_load
+
+    avg_g_comp = acc_comp / tf.cast(steps, tf.float32)
+    avg_g_load = acc_load / tf.cast(steps, tf.float32)
+
+    ig_comp = (input_comp - baseline_comp) * avg_g_comp
+    ig_load = (input_load - baseline_load) * avg_g_load
+    return ig_comp, ig_load
+
+Xc_train = np.asarray(X_comp_train_fit, dtype=np.float32)
+Xl_train_raw = ensure_2d_col_np(np.asarray(X_load_train_fit_raw, dtype=np.float32))
+
+comp_baseline_np = Xc_train.mean(axis=0, keepdims=True).astype(np.float32)
+load_baseline_raw = Xl_train_raw.mean(axis=0, keepdims=True).astype(np.float32)
+load_baseline_scaled = scale_load_final_np(load_baseline_raw, scaler_load_final)
+
+sample_idx = 0
+Xc_ref = np.asarray(X_comp_cal, dtype=np.float32)
+Xl_ref_raw = ensure_2d_col_np(np.asarray(X_load_cal_raw, dtype=np.float32))
+
+if sample_idx < 0 or sample_idx >= Xc_ref.shape[0]:
+    raise IndexError(f"sample_idx={sample_idx} out of range for X_comp_cal with N={Xc_ref.shape[0]}")
+
+comp_row = Xc_ref[sample_idx:sample_idx+1].astype(np.float32)
+load_row_raw = Xl_ref_raw[sample_idx:sample_idx+1].astype(np.float32)
+load_row_scaled = scale_load_final_np(load_row_raw, scaler_load_final)
+comp_baseline_tf = tf.constant(comp_baseline_np, dtype=tf.float32)
+load_baseline_tf = tf.constant(load_baseline_scaled, dtype=tf.float32)
+comp_input_tf    = tf.constant(comp_row, dtype=tf.float32)
+load_input_tf    = tf.constant(load_row_scaled, dtype=tf.float32)
+
+tf.keras.utils.set_random_seed(int(seed))
+ig_comp_tf, ig_load_tf = integrated_gradients(
+    final_model,
+    baseline_inputs=[comp_baseline_tf, load_baseline_tf],
+    input_inputs=[comp_input_tf, load_input_tf],
+    steps=200,
+)
+
+ig_comp = ig_comp_tf.numpy().reshape(-1).astype(np.float32)
+ig_load = ig_load_tf.numpy().reshape(-1).astype(np.float32)
+
+print(
+    "IG(comp) min/max:",
+    float(np.nanmin(ig_comp)),
+    float(np.nanmax(ig_comp)),
+    "nonfinite:",
+    bool(np.any(~np.isfinite(ig_comp))),
+)
+print("IG(load) value:", float(ig_load[0]))
+
+feature_names = list(composition_cols)
+mx = float(np.max(np.abs(ig_comp))) + 1e-12
+
+plt.figure(figsize=(16, 8))
+plt.bar(feature_names, ig_comp, edgecolor="black", linewidth=1.0)
+plt.ylim(-mx, mx)
+plt.xlabel("Compositional Constituent", fontsize=18, weight="bold")
+plt.ylabel("Integrated Gradients Attribution (model output y_scaled)", fontsize=18, weight="bold")
+plt.xticks(range(len(ig_comp)), feature_names, rotation=90, fontsize=12)
+plt.yticks(fontsize=12)
+plt.grid(False)
+for spine in plt.gca().spines.values():
+    spine.set_edgecolor("black")
+    spine.set_linewidth(1.5)
+
+plt.tight_layout()
+plt.savefig("Integrated_Gradients_FINALModel_Composition_yScaled.jpeg", dpi=600, format="jpeg")
+plt.show()
 
 
 # ============================
-# Latent space extraction
+# Regression UQ Calibration
 # ============================
+X_comp_te     = X_comp_test
+X_load_te_raw = X_load_test_raw
+y_te_full     = y_test_arr
+
+for name in ["final_model", "scaler_load_final", "y_mu_final", "y_sd_final", "seed",
+             "X_comp_te", "X_load_te_raw", "y_te_full"]:
+    if name not in globals():
+        raise RuntimeError(f"Missing required object: {name}")
+
+X_comp_eval = np.asarray(X_comp_te, dtype=np.float32)
+X_load_eval_raw = np.asarray(X_load_te_raw, dtype=np.float32)
+y_eval_vec = np.asarray(y_te_full, dtype=np.float32).reshape(-1)
+
+if X_load_eval_raw.ndim == 1:
+    X_load_eval_raw = X_load_eval_raw.reshape(-1, 1)
+if X_load_eval_raw.ndim != 2 or X_load_eval_raw.shape[1] != 1:
+    raise ValueError(f"X_load_eval_raw must be (N,1). Got {X_load_eval_raw.shape}")
+
+N = X_comp_eval.shape[0]
+if (X_load_eval_raw.shape[0] != N) or (y_eval_vec.shape[0] != N):
+    raise ValueError(
+        f"Length mismatch: X_comp N={N}, X_load N={X_load_eval_raw.shape[0]}, y N={y_eval_vec.shape[0]}"
+    )
+
+def _iter_layers(obj):
+    """Yield layers recursively for Keras/TF-Keras model-like objects."""
+    if hasattr(obj, "layers"):
+        for lyr in obj.layers:
+            yield lyr
+            if hasattr(lyr, "layers"):
+                yield from _iter_layers(lyr)
+
+def set_mc_dropout(model, active: bool) -> int:
+    """
+    Toggle MC-dropout layers (custom MCDropout with attribute mc_active).
+    Returns number of toggled layers. Does NOT use model.submodules.
+    """
+    active = bool(active)
+    n = 0
+    for m in _iter_layers(model):
+        if m.__class__.__name__ == "MCDropout" and hasattr(m, "mc_active"):
+            m.mc_active = active
+            n += 1
+    return n
+
+def _extract_y_scaled(out):
+    """
+    final_model sometimes returns a dict with keys:
+      'Output_Layer', 'Comp_Attention', 'Load_Attention', ...
+    Handle dict/list/tuple/tensor robustly.
+    """
+    if isinstance(out, dict):
+        if "Output_Layer" not in out:
+            raise KeyError(f"Model returned dict but missing 'Output_Layer'. Keys: {list(out.keys())}")
+        return out["Output_Layer"]
+    if isinstance(out, (list, tuple)):
+        return out[0]
+    return out
+
+def scale_load_final_np(x_raw: np.ndarray) -> np.ndarray:
+    x_raw = np.asarray(x_raw, dtype=np.float32)
+    if x_raw.ndim == 1:
+        x_raw = x_raw.reshape(-1, 1)
+    if x_raw.ndim != 2 or x_raw.shape[1] != 1:
+        raise ValueError(f"Expected load shape (N,1). Got {x_raw.shape}")
+    return scaler_load_final.transform(x_raw).astype(np.float32)
+
+def yscaled_to_hv_np(y_scaled: np.ndarray, y_mu: float, y_sd: float) -> np.ndarray:
+    y_scaled = np.asarray(y_scaled, dtype=np.float32).reshape(-1)
+    return (y_scaled * float(y_sd) + float(y_mu)).astype(np.float32)
+
+ORIGINAL_Y_IS_SCALED = False
+y_eval_hv = yscaled_to_hv_np(y_eval_vec, y_mu_final, y_sd_final) if ORIGINAL_Y_IS_SCALED else y_eval_vec.astype(np.float32)
+X_load_eval_scaled = scale_load_final_np(X_load_eval_raw)
+
+def mc_predict_hv(
+    model,
+    Xc: np.ndarray,
+    Xl_scaled: np.ndarray,
+    S: int = 500,
+    batch_size: int = 512,
+    seed: int = 0,
+) -> np.ndarray:  
+    Xc = np.asarray(Xc, dtype=np.float32)
+    Xl_scaled = np.asarray(Xl_scaled, dtype=np.float32)
+    n = Xc.shape[0]
+
+    ds = tf.data.Dataset.from_tensor_slices((Xc, Xl_scaled)).batch(batch_size)
+    samples = np.empty((int(S), n), dtype=np.float32)
+
+    n_toggled = set_mc_dropout(model, True)
+    if n_toggled == 0:
+        raise RuntimeError(
+            "No MCDropout layers with attribute 'mc_active' were found. "
+            "MC-dropout sampling will be deterministic. Ensure final_model uses MCDropout."
+        )
+
+    try:
+        for s in range(int(S)):
+            tf.keras.utils.set_random_seed(int(seed) + 10000 + s)
+            preds = []
+            for xb, xl in ds:
+                out = model([xb, xl], training=False)
+                yb = _extract_y_scaled(out)
+                yb = tf.reshape(tf.cast(yb, tf.float32), (-1,)).numpy().astype(np.float32)
+                preds.append(yscaled_to_hv_np(yb, y_mu_final, y_sd_final))
+            samples[s, :] = np.concatenate(preds, axis=0)
+    finally:
+        set_mc_dropout(model, False)
+
+    return samples
+
+S_MC = 500
+y_pred_samples_hv = mc_predict_hv(
+    final_model, X_comp_eval, X_load_eval_scaled, S=S_MC, batch_size=512, seed=int(seed)
+)
+
+std_per_point = np.std(y_pred_samples_hv, axis=0)
+mc_std_mean = float(np.mean(std_per_point))
+mc_std_p50 = float(np.median(std_per_point))
+print(f"[UQ DIAG] MC std: mean={mc_std_mean:.6f} HV, median={mc_std_p50:.6f} HV")
+
+if mc_std_mean < 1e-3:
+    raise RuntimeError(
+        "MC predictive samples are essentially deterministic (std ~ 0). "
+        "Fix upstream: ensure final_model uses MCDropout and set_mc_dropout toggles mc_active."
+    )
+
+# PIT histogram
+y_eval = y_eval_hv.reshape(-1)
+S = y_pred_samples_hv.shape[0]
+
+pit = (np.sum(y_pred_samples_hv < y_eval[None, :], axis=0) +
+       0.5 * np.sum(y_pred_samples_hv == y_eval[None, :], axis=0)) / float(S)
+pit = pit.astype(np.float32)
+
+plt.figure(figsize=(10, 7))
+plt.hist(pit, bins=20, edgecolor="black")
+plt.xlabel("PIT value", fontsize=16, weight="bold")
+plt.ylabel("Count", fontsize=16, weight="bold")
+plt.tight_layout()
+plt.savefig("uq_pit_histogram_HV_FINAL.jpeg", dpi=600, format="jpeg")
+plt.show()
+
+# Coverage vs nominal + sharpness
+confidence_levels = np.linspace(0.05, 0.95, 10).astype(np.float32)
+coverage_probabilities = []
+interval_widths = []
+
+for c in confidence_levels:
+    lower_q = float((1.0 - c) / 2.0)
+    upper_q = float(1.0 - lower_q)
+
+    lower_bound = np.quantile(y_pred_samples_hv, lower_q, axis=0).astype(np.float32)
+    upper_bound = np.quantile(y_pred_samples_hv, upper_q, axis=0).astype(np.float32)
+
+    cov = np.mean((y_eval >= lower_bound) & (y_eval <= upper_bound))
+    coverage_probabilities.append(float(cov))
+
+    width = np.mean(upper_bound - lower_bound)
+    interval_widths.append(float(width))
+
+coverage_probabilities = np.asarray(coverage_probabilities, dtype=np.float32)
+interval_widths = np.asarray(interval_widths, dtype=np.float32)
+
+abs_miscal = np.abs(coverage_probabilities - confidence_levels)
+mace = float(np.mean(abs_miscal))
+imce = float(np.trapz(abs_miscal, confidence_levels))
+print(f"Calibration (HV): MACE={mace:.4f}, IMCE={imce:.4f}")
+
+# Reliability diagram
+plt.figure(figsize=(10, 8))
+plt.plot(confidence_levels, coverage_probabilities, "o-", label="Empirical coverage")
+plt.plot([confidence_levels.min(), confidence_levels.max()],
+         [confidence_levels.min(), confidence_levels.max()],
+         "k--", label="Perfect calibration")
+plt.xlabel("Nominal confidence level")
+plt.ylabel("Empirical coverage")
+plt.legend()
+plt.tight_layout()
+plt.savefig("uq_reliability_coverage_vs_nominal_HV_FINAL.jpeg", dpi=600, format="jpeg")
+plt.show()
+
+# Sharpness
+plt.figure(figsize=(10, 8))
+plt.plot(confidence_levels, interval_widths, "o-")
+plt.xlabel("Nominal confidence level")
+plt.ylabel("Mean prediction-interval width (HV)")
+plt.tight_layout()
+plt.savefig("uq_sharpness_interval_width_HV_FINAL.jpeg", dpi=600, format="jpeg")
+plt.show()
+
+calib_df = pd.DataFrame({
+    "confidence_level": confidence_levels,
+    "empirical_coverage": coverage_probabilities,
+    "abs_miscalibration": abs_miscal.astype(np.float32),
+    "mean_interval_width_HV": interval_widths.astype(np.float32),
+})
+calib_df.to_csv("uq_calibration_coverage_curve_HV_FINAL.csv", index=False)
+
+summary_df = pd.DataFrame([{
+    "MACE": mace,
+    "IMCE": imce,
+    "MC_std_mean_HV": mc_std_mean,
+    "MC_std_median_HV": mc_std_p50
+}])
+summary_df.to_csv("uq_calibration_summary_HV_FINAL.csv", index=False)
+
+print("Saved: uq_calibration_coverage_curve_HV_FINAL.csv, uq_calibration_summary_HV_FINAL.csv")
+
+
+# ===========================
+# Latent Space Analysis
+# ===========================
 def ensure_scaled_load(x_load, *, assume_scaled: bool, scaler, dtype=np.float32):
     x = np.asarray(x_load, dtype=dtype)
     if x.ndim == 1:
@@ -2130,19 +2211,10 @@ print("Latent extraction complete:")
 print(f"  Z_train: {Z_train.shape}, Z_cal: {Z_cal.shape}, Z_test: {Z_test.shape}, Z_all: {Z.shape}")
 
 
-# In[42]:
-
-
-# Elbow method in FINAL-model latent space (deterministic z=mu)
+# Elbow method in FINAL-model latent space
 set_mc_dropout(final_model, False)
 
 # Latent extractor
-latent_extractor_final = tf.keras.Model(
-    inputs=final_model.input,
-    outputs=final_model.get_layer("vib_layer").output,
-    name="latent_extractor_final"
-)
-
 Xc_train = np.asarray(X_comp_train_fit, dtype=np.float32)
 Xl_train = np.asarray(X_load_train_fit, dtype=np.float32)
 
@@ -2179,17 +2251,8 @@ plt.savefig("Elbow_Method_for_Optimal_Number_of_Clusters.jpeg", dpi=600, format=
 plt.show()
 
 
-# In[43]:
-
-
-# ---------- Build Z from FINAL-model latent space (deterministic, no leakage) ----------
+# Design the latent space
 set_mc_dropout(final_model, False)
-
-latent_extractor_final = tf.keras.Model(
-    inputs=final_model.input,
-    outputs=final_model.get_layer("vib_layer").output,
-    name="latent_extractor_final"
-)
 
 def _ensure_2d(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float32)
@@ -2255,20 +2318,8 @@ plt.tight_layout()
 plt.savefig("tSNE_LatentSpace_KMeansClusters.jpeg", dpi=600, format="jpeg")
 plt.show()
 
-tsne_df = pd.DataFrame({
-    "tSNE_Dim1": Z_2d[:, 0],
-    "tSNE_Dim2": Z_2d[:, 1],
-    "Cluster": clusters,
-    "SplitID": split_id,
-})
-tsne_df.to_csv("tSNE_latent_clusters.csv", index=False)
-print("Exported tSNE_latent_clusters.csv successfully.")
-
 unique_clusters = np.unique(clusters)
 print(f"Found {len(unique_clusters)} clusters:", unique_clusters)
-
-
-# In[44]:
 
 
 # t-SNE plot colored by hardness (aligned + deterministic)
@@ -2313,17 +2364,6 @@ plt.tight_layout()
 plt.savefig("tSNE_LatentSpace_ColorByHardness.jpeg", dpi=600, format="jpeg")
 plt.show()
 
-tsne_hardness_df = pd.DataFrame({
-    "tSNE_Dim1": Z_2d[:, 0],
-    "tSNE_Dim2": Z_2d[:, 1],
-    "Hardness_HV": y_latent
-})
-tsne_hardness_df.to_csv("tSNE_latent_hardness.csv", index=False)
-print("Exported tSNE_latent_hardness.csv successfully.")
-
-
-# In[45]:
-
 
 #  Hardness distributions across clusters
 clusters = np.asarray(clusters, dtype=int).reshape(-1)
@@ -2362,26 +2402,6 @@ for spine in plt.gca().spines.values():
 plt.tight_layout()
 plt.savefig("Hardness_Distribution_Across_Clusters.jpeg", dpi=600, format="jpeg")
 plt.show()
-
-summary_rows = []
-for k in uniq_sorted:
-    vals = y_latent[clusters == k]
-    summary_rows.append({
-        "Cluster": int(k),
-        "N": int(vals.size),
-        "Median_HV": float(np.median(vals)),
-        "Q25_HV": float(np.percentile(vals, 25)),
-        "Q75_HV": float(np.percentile(vals, 75)),
-        "Mean_HV": float(np.mean(vals)),
-        "Std_HV": float(np.std(vals)),
-    })
-
-cluster_hv_summary = pd.DataFrame(summary_rows)
-cluster_hv_summary.to_csv("Hardness_Distribution_Across_Clusters_summary.csv", index=False)
-print("Exported: Hardness_Distribution_Across_Clusters_summary.csv")
-
-
-# In[46]:
 
 
 # Global GMM in latent space
@@ -2436,12 +2456,7 @@ best_k = int(np.argmax([y_latent[labels_all == k].mean() for k in range(K)]))
 print("Selected component (highest mean HV):", best_k)
 
 
-# In[47]:
-
-
-# ----------------------------
-# 1) Average composition per cluster
-# ----------------------------
+# Average composition per cluster
 cluster_labels_used = np.asarray(clusters, dtype=int).reshape(-1)
 
 X_comp_stack = np.vstack([
@@ -2489,14 +2504,6 @@ logp_train = gmm_latent.score_samples(Z_train).astype(np.float32)
 
 logp_thr = float(np.percentile(logp_train, 1.0))
 print(f"[GMM prior] logp threshold (1st percentile of train): {logp_thr:.3f}")
-
-plaus_df = pd.DataFrame({
-    "logp": logp_all,
-})
-plaus_df.to_csv("latent_gmm_loglik_all.csv", index=False)
-
-
-# In[48]:
 
 
 # Fit a separate GMM on the 2D latent space (for visualization only)
@@ -2563,57 +2570,8 @@ plt.savefig("gmm_probability_density_with_scatter_points.png", dpi=600, format="
 plt.show()
 
 
-# In[49]:
-
-
-# ----------------------------
-# Export contour grid to CSV
-# ----------------------------
-Xg = np.asarray(X_smooth_temp, dtype=np.float64)
-Yg = np.asarray(Y_smooth_temp, dtype=np.float64)
-Zg = np.asarray(Z_smooth_temp, dtype=np.float64)
-
-if Xg.shape != Yg.shape or Xg.shape != Zg.shape:
-    raise ValueError(f"Shape mismatch: X{Xg.shape}, Y{Yg.shape}, Z{Zg.shape}")
-
-x_flat = Xg.ravel()
-y_flat = Yg.ravel()
-z_flat = Zg.ravel()
-
-mask = np.isfinite(z_flat) & np.isfinite(x_flat) & np.isfinite(y_flat)
-contour_data = np.column_stack((x_flat[mask], y_flat[mask], z_flat[mask]))
-
-if contour_data.shape[0] == 0:
-    raise ValueError(
-        "No finite contour values to export. "
-        "Z_smooth_temp is all-NaN/inf. Consider using griddata(method='linear') "
-        "or increasing grid padding / using a convex-hull mask."
-    )
-
-np.savetxt(
-    "contour_data.csv",
-    contour_data,
-    delimiter=",",
-    header="X,Y,LogLikelihood",
-    comments="",
-    fmt="%.8e",
-)
-
-print(f"Exported contour_data.csv with {contour_data.shape[0]} points.")
-
-scatter_df = pd.DataFrame({
-    "Dim1": Z_prior_2d[:, 0],
-    "Dim2": Z_prior_2d[:, 1],
-})
-scatter_df.to_csv("scatter_points_2d.csv", index=False)
-print("Exported scatter_points_2d.csv")
-
-
-# In[50]:
-
-
 # ================================
-# SHAP on latent-GMM clusters (HELD-OUT)
+# SHAP on latent-GMM clusters
 # ================================
 def scale_load_np_new(x_load_raw: np.ndarray, scaler) -> np.ndarray:
     """Always returns (N,1) float32 scaled load as FINAL model expects."""
@@ -2756,9 +2714,6 @@ means_df.to_csv("shap_export/Cluster_Physical_Feature_Means_HELDOUT.csv", index=
 print(means_df)
 
 
-# In[51]:
-
-
 # ============================
 # Latent Traversal Analysis
 # ============================
@@ -2784,15 +2739,12 @@ def get_latents_np(model: tf.keras.Model, X_comp: np.ndarray, X_load_scaled: np.
         raise ValueError("Non-finite values in extracted latents.")
     return Z
 
-
-# --- Ensure deterministic mode for traversal unless you explicitly want MC-dropout bands
 try:
     set_mc_dropout(final_model, False)
 except Exception:
     pass
 
-
-# --- Extract latents from the training-fit set
+# Extract latents from the training-fit set
 Z_train = get_latents_np(
     final_model,
     np.asarray(X_comp_train_fit, dtype=np.float32),
@@ -2806,23 +2758,19 @@ if Z_train.shape[0] != y_train_vec.shape[0]:
 latent_dim = int(Z_train.shape[1])
 
 
-# ============================
+# ------------------------------------------------------------
 # Build a head model: (z, load_scaled) -> hardness_scaled
-# Reuses trained layers from final_model and matches training graph exactly
-# ============================
-
+# ------------------------------------------------------------
 # Inputs
 z_in = tf.keras.Input(shape=(latent_dim,), dtype=tf.float32, name="z_in")
 load_in = tf.keras.Input(shape=(1,), dtype=tf.float32, name="load_in_scaled")
 
 # Reuse the trained load branch layers
-# Note: Load_Attention is softmax over 1 dim -> always 1, but we keep it for exact reuse.
 load_weighted, _ = final_model.get_layer("Load_Attention")(load_in)
 x_load = final_model.get_layer("Load_Enc_D1")(load_weighted)
 x_load = final_model.get_layer("Load_Enc_BN1")(x_load)
 x_load = final_model.get_layer("Load_Enc_DO1")(x_load)
 
-# Concatenate exactly as in training graph: [z, x_load] -> Hard_Trunk -> Output
 hard_in = final_model.get_layer("Hard_Input")([z_in, x_load])
 
 h = final_model.get_layer("Hard_Trunk_D1")(hard_in)
@@ -2836,11 +2784,9 @@ hardness_from_zL_scaled = tf.keras.Model(
     name="hardness_from_z_and_load_scaled"
 )
 
-
-# ============================
+# -----------------------------------------
 # Choose candidate latent anchors
-# ============================
-
+# -----------------------------------------
 center_lv = Z_train.mean(axis=0).astype(np.float32)
 
 top_percentile = 92
@@ -2853,33 +2799,13 @@ high_lv = Z_train[int(rng.choice(high_idx))].astype(np.float32)
 
 candidates = {"Center": center_lv, "High": high_lv}
 
-
-# ============================
-# Traversal bounds (robust quantile clipping)
-# ============================
-
 CLIP_Q = 0.01
 lb = np.quantile(Z_train, CLIP_Q, axis=0).astype(np.float32)
 ub = np.quantile(Z_train, 1.0 - CLIP_Q, axis=0).astype(np.float32)
 
-
-# ============================
-# Fix the load for traversal (scaled load)
-# Choose one of the options below
-# ============================
-
-# Option A (recommended default): median scaled load of training-fit set
 L_star = float(np.median(np.asarray(X_load_train_fit, dtype=np.float32)))
 L_star_arr = np.array([[L_star]], dtype=np.float32)
 
-# Option B: pick a specific scaled load (uncomment and set)
-# L_star = 0.0  # e.g., mean load in scaled space
-# L_star_arr = np.array([[L_star]], dtype=np.float32)
-
-
-# ============================
-# Plot settings
-# ============================
 
 plt.rcParams["figure.facecolor"]  = "white"
 plt.rcParams["axes.facecolor"]    = "white"
@@ -2888,10 +2814,7 @@ plt.rcParams["savefig.facecolor"] = "white"
 N_STEPS = 25
 
 
-# ============================
 # Latent traversal loops
-# ============================
-
 for name, base_lv in candidates.items():
     rows = []
 
@@ -2912,8 +2835,6 @@ for name, base_lv in candidates.items():
             lv = base.copy()
             lv[dim] = val
 
-            # IMPORTANT FIX:
-            # Use the load-conditioned head (z, load) -> y_scaled
             y_s = hardness_from_zL_scaled([lv[None, :], L_star_arr], training=False)
             y_s = float(tf.reshape(y_s, (-1,))[0].numpy())
             hv = float(y_s * y_sd_final + y_mu_final)
@@ -2968,12 +2889,9 @@ for name, base_lv in candidates.items():
     print(f"Saved long-format traversal data: {csv_name}")
 
 
-# In[52]:
-
-
-# ============================
+# =======================================
 # Global Latent–Hardness Correlations
-# ============================
+# =======================================
 vib_layer = final_model.get_layer("vib_layer")
 latent_extractor = tf.keras.Model(
     inputs=final_model.input,
@@ -2981,7 +2899,6 @@ latent_extractor = tf.keras.Model(
     name="latent_extractor_final"
 )
 
-# Determine latent_dim robustly
 latent_dim = None
 for attr in ("latent_dim", "units", "dim"):
     if hasattr(vib_layer, attr):
@@ -2991,7 +2908,6 @@ for attr in ("latent_dim", "units", "dim"):
         except Exception:
             pass
 
-# Prepare full dataset inputs in the same form used by the model
 X_comp_all_f = np.asarray(X_comp_all, dtype=np.float32)
 X_load_all_raw_f = np.asarray(X_load_all_raw, dtype=np.float32).reshape(-1, 1)
 X_load_all_scaled = scaler_load_final.transform(X_load_all_raw_f).astype(np.float32)
@@ -3001,7 +2917,6 @@ try:
 except Exception:
     pass
 
-# Latents (N, d)
 all_latents = latent_extractor.predict([X_comp_all_f, X_load_all_scaled], verbose=0).astype(np.float32)
 
 if all_latents.ndim != 2:
@@ -3017,22 +2932,14 @@ else:
 
 print("Detected latent_dim =", latent_dim)
 
-# ============================
-# Build a head model: (z, load_scaled) -> hardness_scaled
-# Must match training graph: Hard_Input = concat([z, x_load]), then Hard_Trunk -> Output
-# ============================
-
 z_in = tf.keras.Input(shape=(latent_dim,), dtype=tf.float32, name="z_in")
 load_in = tf.keras.Input(shape=(1,), dtype=tf.float32, name="load_in_scaled")
 
-# Reuse trained load encoder path to create x_load (shape=32)
-# (Load_Attention is identity for 1D load but kept for exact reuse.)
 load_weighted, _ = final_model.get_layer("Load_Attention")(load_in)
 x_load = final_model.get_layer("Load_Enc_D1")(load_weighted)
 x_load = final_model.get_layer("Load_Enc_BN1")(x_load)
 x_load = final_model.get_layer("Load_Enc_DO1")(x_load)
 
-# Concatenate in the same way the final_model does
 hard_in = final_model.get_layer("Hard_Input")([z_in, x_load])
 
 h = final_model.get_layer("Hard_Trunk_D1")(hard_in)
@@ -3046,22 +2953,15 @@ hardness_from_zL_scaled = tf.keras.Model(
     name="hardness_from_z_and_load_scaled"
 )
 
-# ============================
-# Empirical predicted hardness (HV) consistent with the FINAL model for each sample
-# (use each sample's own load to compute HV)
-# ============================
-
-# Predict y_scaled with the correct head model
 y_scaled_emp = hardness_from_zL_scaled([all_latents, X_load_all_scaled], training=False)
 y_scaled_emp = y_scaled_emp.numpy().reshape(-1).astype(np.float64)
 
-# Convert to HV units
 hv_emp = (y_scaled_emp * float(y_sd_final) + float(y_mu_final)).astype(np.float64)
 
-# ============================
-# Correlations of each latent dimension with predicted HV
-# ============================
 
+# =============================================================
+# Correlations of each latent dimension with predicted HV
+# =============================================================
 pearson_coeffs  = np.empty(latent_dim, dtype=np.float64)
 spearman_coeffs = np.empty(latent_dim, dtype=np.float64)
 
@@ -3092,13 +2992,9 @@ corr_df.to_csv("latent_hardness_correlations_empirical_latents.csv", index=False
 print("Exported: latent_hardness_correlations_empirical_latents.csv")
 
 
-# In[53]:
-
-
-# ============================
-# PCA in FINAL latent space vs predicted hardness (corrected for multi-output model + load-conditioned head)
-# ============================
-
+# ====================================================
+# PCA in FINAL latent space vs predicted hardness
+# ====================================================
 def ensure_2d_col(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float32)
     return x.reshape(-1, 1) if x.ndim == 1 else x
@@ -3114,46 +3010,30 @@ def get_output_layer_tensor(model_out):
             raise KeyError(f"Model output dict keys: {list(model_out.keys())}; expected 'Output_Layer'.")
         return model_out["Output_Layer"]
     if isinstance(model_out, (list, tuple)):
-        # Your model output order is:
-        # [Output_Layer, Comp_Attention, Load_Attention, Comp_Recon, Load_Recon]
-        # so index 0 is Output_Layer.
         return model_out[0]
     return model_out
 
-# --- Latent extractor (vib_layer output)
-latent_model = tf.keras.Model(
-    inputs=final_model.input,
-    outputs=final_model.get_layer("vib_layer").output,
-    name="latent_model_final"
-)
-
-# --- Prepare test inputs (must be scaled load)
+# Latent extractor
 Xc_test = np.asarray(X_comp_test, dtype=np.float32)
 Xl_test = ensure_2d_col(scale_load_np_new(np.asarray(X_load_test_raw, dtype=np.float32), scaler_load_final))
 
-# --- Deterministic mode unless you explicitly want MC-dropout
 try:
     set_mc_dropout(final_model, False)
 except Exception:
     pass
 
-# --- Latents on test set
 latent_vectors_test = latent_model.predict([Xc_test, Xl_test], verbose=0).astype(np.float32)
 
-# --- Predicted hardness on test set (scaled)
 out_det = final_model([Xc_test, Xl_test], training=False)
 y_tensor = get_output_layer_tensor(out_det)
 y_det_scaled = y_tensor.numpy().reshape(-1).astype(np.float32)
 
-# --- Convert to HV
 hardness_preds_hv = invert_y_to_hv(y_det_scaled, y_mu_final, y_sd_final)
 
 if latent_vectors_test.shape[0] != hardness_preds_hv.shape[0]:
     raise ValueError(f"Mismatch: latents N={latent_vectors_test.shape[0]} vs preds N={hardness_preds_hv.shape[0]}")
 
-# ============================
-# PCA basis fit on TRAIN-FIT latents (recommended)
-# ============================
+# PCA basis fit on TRAIN-FIT latents
 Z_train = latent_model.predict(
     [np.asarray(X_comp_train_fit, dtype=np.float32),
      ensure_2d_col(np.asarray(X_load_train_fit, dtype=np.float32))],
@@ -3164,9 +3044,7 @@ pca = PCA(n_components=2, random_state=seed)
 pca.fit(Z_train)
 pc_scores = pca.transform(latent_vectors_test).astype(np.float32)
 
-# ============================
 # Linear association of PCs with predicted hardness (HV)
-# ============================
 lr1 = LinearRegression().fit(pc_scores[:, [0]], hardness_preds_hv)
 r2_pc1 = r2_score(hardness_preds_hv, lr1.predict(pc_scores[:, [0]]))
 
@@ -3201,13 +3079,9 @@ print(f"Explained variance by PC1: {pca.explained_variance_ratio_[0]:.2%}")
 print(f"Explained variance by PC2: {pca.explained_variance_ratio_[1]:.2%}")
 
 
-# In[54]:
-
-
-# ============================
+# ===================================================
 # Gradient-Based Importance of Latent Dimensions
-# ============================
-
+# ===================================================
 def ensure_2d_col(x: np.ndarray) -> np.ndarray:
     x = np.asarray(x, dtype=np.float32)
     return x.reshape(-1, 1) if x.ndim == 1 else x
@@ -3217,18 +3091,9 @@ try:
 except Exception:
     pass
 
-# --- Latent extractor (vib_layer output)
-latent_model = tf.keras.Model(
-    inputs=final_model.input,
-    outputs=final_model.get_layer("vib_layer").output,
-    name="latent_model_final"
-)
-
-# --- Prepare test inputs (scaled load, 2D)
 Xc_test = np.asarray(X_comp_test, dtype=np.float32)
 Xl_test = ensure_2d_col(scale_load_np_new(np.asarray(X_load_test_raw, dtype=np.float32), scaler_load_final))
 
-# --- Latents on test
 latent_vectors_test = latent_model.predict([Xc_test, Xl_test], verbose=0).astype(np.float32)
 
 if latent_vectors_test.ndim != 2 or latent_vectors_test.shape[0] != Xc_test.shape[0]:
@@ -3236,27 +3101,18 @@ if latent_vectors_test.ndim != 2 or latent_vectors_test.shape[0] != Xc_test.shap
 
 latent_dim = int(latent_vectors_test.shape[1])
 
-# ============================
-# Build deterministic head: (z, load_scaled) -> y_scaled
-# Must match training graph (Hard_Input concat([z, x_load]) then Hard_Trunk -> Output)
-# ============================
-
 z_in = tf.keras.Input(shape=(latent_dim,), dtype=tf.float32, name="z_in")
 load_in = tf.keras.Input(shape=(1,), dtype=tf.float32, name="load_in_scaled")
 
-# Load encoder reuse
 load_weighted, _ = final_model.get_layer("Load_Attention")(load_in)
 x_load = final_model.get_layer("Load_Enc_D1")(load_weighted)
 x_load = final_model.get_layer("Load_Enc_BN1")(x_load)
 x_load = final_model.get_layer("Load_Enc_DO1")(x_load)
 
-# Hardness head reuse
 hard_in = final_model.get_layer("Hard_Input")([z_in, x_load])
 
 h = final_model.get_layer("Hard_Trunk_D1")(hard_in)
 h = final_model.get_layer("Hard_Trunk_BN1")(h)
-# NOTE: keep dropout OFF for deterministic gradients; Hard_Trunk_DO1 is a dropout layer.
-# If you want stochastic gradients under MC-dropout, you can include it and set_mc_dropout(final_model, True).
 y_out_scaled = final_model.get_layer("Output_Layer")(h)
 
 hardness_from_zL_det = tf.keras.Model(
@@ -3266,9 +3122,8 @@ hardness_from_zL_det = tf.keras.Model(
 )
 
 # ============================
-# Compute gradients d(HV)/d(z) at fixed load for each sample (use each sample's load)
+# Compute gradients d(HV)/d(z)
 # ============================
-
 N_MAX = 2048
 rng = np.random.default_rng(seed)
 
@@ -3280,32 +3135,27 @@ else:
     Z_use = latent_vectors_test
     L_use = Xl_test
 
-# Variables for gradient computation
 z_var = tf.Variable(np.asarray(Z_use, dtype=np.float32))
-# Keep load constant (not differentiating wrt load), but feed it as Tensor
 l_tensor = tf.convert_to_tensor(np.asarray(L_use, dtype=np.float32))
 
 with tf.GradientTape() as tape:
-    # Watch z_var by default; objective is sum of predictions to aggregate gradients
     y_pred_scaled = hardness_from_zL_det([z_var, l_tensor], training=False)
     y_pred_scaled = tf.squeeze(y_pred_scaled, axis=-1)
     obj = tf.reduce_sum(y_pred_scaled)
 
-grads = tape.gradient(obj, z_var)  # shape (N, latent_dim)
+grads = tape.gradient(obj, z_var)
 
 if grads is None:
     raise RuntimeError("GradientTape returned None gradients. Check that y depends on z in the head model.")
 
-# Convert to HV sensitivities: HV = y_scaled * y_sd_final + y_mu_final => dHV/dz = y_sd_final * dy_scaled/dz
 y_sd = float(y_sd_final) if "y_sd_final" in globals() else 1.0
 sensitivities = (y_sd * tf.reduce_mean(tf.abs(grads), axis=0)).numpy().astype(np.float32)  # (latent_dim,)
 
 dims = np.arange(1, latent_dim + 1)
 
-# ============================
-# Plot + export
-# ============================
-
+# ============
+# Plotting
+# ============
 plt.figure(figsize=(12, 6))
 plt.bar(dims, sensitivities, edgecolor="black", linewidth=1.0)
 plt.xticks(dims, [f"z{i}" for i in dims], rotation=90, fontsize=10)
@@ -3331,14 +3181,11 @@ imp_df.to_csv("latent_gradient_importance_det_head.csv", index=False)
 print("Saved: latent_gradient_importance_det_head.png and latent_gradient_importance_det_head.csv")
 
 
-# # Inverse Design
+# ================================
+# Inverse Design
+# ================================
 
-# In[ ]:
-
-
-# ============================================================
 # Latent prior (Weighted GMM) + Mixture-aware Multi-chain MCMC sampling
-# ============================================================
 for name in [
     "final_model", "scaler_load_final",
     "X_comp_train_fit", "X_load_train_fit_raw", "y_train_fit",
@@ -3439,10 +3286,8 @@ def assert_mc_dropout_configured(
             "Ensure MCDropout layers exist and set_mc_dropout_inv(model, True) is called for MC sampling."
         )
 
-# Config
 DESIGN_LOAD_VALUE = float(0.5)
 assert_mc_dropout_configured(final_model, DESIGN_LOAD_VALUE, n_checks=6, atol=1e-8)
-
 
 # Encoder: (x_comp, x_load_scaled) -> z
 encoder_model = tf.keras.Model(
@@ -3516,7 +3361,6 @@ for k in range(K):
         cov_k = np.diag(cov_k)
     gmm_cov_inv.append(np.linalg.inv(cov_k + 1e-6 * np.eye(cov_k.shape[0], dtype=np.float64)))
 
-
 # Decoder (latent -> composition)
 vib_layer = final_model.get_layer("vib_layer")
 latent_dim_check = int(getattr(vib_layer, "latent_dim", latent_dim))
@@ -3537,7 +3381,6 @@ Xl_design_scaled_1x1 = scale_load_np_inv(
     np.array([[DESIGN_LOAD_VALUE]], dtype=np.float32),
     scaler_load_final
 ).astype(np.float32)
-
 
 # Hybrid responsibility-weighted Mahalanobis distance
 RESP_TAU = float(2.0)
@@ -3598,7 +3441,6 @@ SIGMA_REF_Q75 = float(np.quantile(sig_train_1N, 0.75))
 print(f"[TRAIN@1N] mu_peak_thr = q{MU_PEAK_Q:.3f}(mu) = {mu_peak_thr:.2f} HV")
 print(f"[TRAIN@1N] LCB_TARGET  = q{LCB_PEAK_Q:.2f}(LCB | mu>=mu_peak_thr) = {LCB_TARGET:.2f} HV")
 print(f"[TRAIN@1N] sigma_ref_q75 = {SIGMA_REF_Q75:.2f} HV")
-
 
 # Target + penalties
 BETA_TILT = float(0.25)
@@ -3671,7 +3513,7 @@ def _eval_z_mc(
 def _repulsion_penalty(z_vec64: np.ndarray, z_memory: list) -> float:
     if len(z_memory) == 0:
         return 0.0
-    Zm = np.stack(z_memory, axis=0)  # (m, d)
+    Zm = np.stack(z_memory, axis=0)
     d2 = np.sum((Zm - z_vec64.reshape(1, -1))**2, axis=1)
     d2_min = float(np.min(d2))
     return float(REPULSION_GAMMA * np.exp(-d2_min / float(REPULSION_EPS + 1.0)))
@@ -3693,13 +3535,10 @@ def _log_target_from_eval(ev: dict, z_vec64: np.ndarray, z_memory: list, burnin:
     rep_pen = _repulsion_penalty(z_vec64, z_memory)
 
     U = _utility_risk(ev["mu_hv"], ev["sigma_hv"])
-
-    # Burn-in smoothing: lower tilt and disable repulsion early to improve mobility
     beta_tilt_eff = (0.10 if burnin else BETA_TILT)
     rep_pen_eff   = (0.0  if burnin else rep_pen)
 
     return float(ev["logp"] + beta_tilt_eff * U - lcb_pen - sig_pen - d2_pen - rep_pen_eff)
-
 
 # MCMC hyperparameters
 N_CHAINS = int(25)
@@ -3954,12 +3793,9 @@ mcmc_diag_df.to_csv("mcmc_latent_diagnostics_cheap.csv", index=False)
 print("Saved: mcmc_latent_diagnostics_cheap.csv")
 
 
-# In[ ]:
-
-
-# ============================================================
-# Inverse Design
-# ============================================================
+# ------------------------------------------
+# Inverse Design loop after sampling
+# ------------------------------------------
 def _seed_stream(base_seed: int, n: int) -> np.ndarray:
     ss = np.random.SeedSequence(int(base_seed))
     return ss.generate_state(int(n), dtype=np.uint32)
@@ -4019,7 +3855,7 @@ def summarize_mc_hv(samples_scaled: np.ndarray, y_mu: float, y_sd: float):
     q80 = np.quantile(samples_hv, 0.80, axis=0).astype(np.float32)
     return samples_hv, mu, sigma, q10, q80
 
-# Novelty baseline (consistent statistic: leave-one-out NN in train subset)
+
 X_train_comp = project_comp_to_simplex_np(np.asarray(X_comp_train_fit, dtype=np.float32))
 
 NOV_SUB = int(min(5000, X_train_comp.shape[0]))
@@ -4086,7 +3922,7 @@ print(f"[TRAIN@1N diag] MU_TARGET_DIAG = q{MU_TARGET_Q_DIAG:.2f}(mu) = {MU_TARGE
 print(f"[TRAIN@1N]      LCB_TARGET     = {float(LCB_TARGET):.2f} HV (from Block-1 calibration)")
 
 
-# Decode MCMC latents -> compositions, dedup
+# Decode MCMC latents -> compositions
 set_mc_dropout_inv(final_model, False)
 comp_pred = decoder_model.predict(sampled_latent_vectors.astype(np.float32), verbose=0)
 comp_pred = project_comp_to_simplex_np(comp_pred.astype(np.float32))
@@ -4246,7 +4082,6 @@ if int(np.sum(df["accepted"].values)) > 0:
     diverse_global_idx = acc_df.index.values[pick_local]
     df.loc[diverse_global_idx, "diverse_pick"] = 1
 else:
-    # fallback: diverse from top soft_score (still useful to inspect why gates fail)
     top_df = df.head(TOPK_EXPORT).copy()
     X_top = top_df[composition_cols].values.astype(np.float32)
     score_top = top_df["soft_score"].values.astype(np.float32)
@@ -4281,22 +4116,19 @@ print(
 )
 
 
-# In[57]:
-
-
-# ============================================================
+# =====================================
 # Gradient-Based Optimization
-# ============================================================
+# =====================================
 best_loss = float("inf")
 no_improvement_counter = 0
 
-min_hardness = 2200.0
-max_hardness = 2500.0
+min_hardness = 2300.0
+max_hardness = 2600.0
 target_hardness = 0.5 * (min_hardness + max_hardness)
 
 num_new_alloys = 5
 learning_rate = 3e-4
-num_iterations = 10000
+num_iterations = 100000
 
 ACQ_MODE = "lcb"
 z_conf = float(ZCONF_FINAL)
@@ -4755,12 +4587,9 @@ print(
 )
 
 
-# In[58]:
-
-
-# ============================
+# =============================================================================
 # Latent-space visualization AFTER inverse-design + gradient optimization
-# ============================
+# =============================================================================
 required = [
     "latent_vectors_tr",
     "sampled_latent_vectors",
@@ -4833,8 +4662,6 @@ def decode_latents_to_comp(Z: np.ndarray) -> np.ndarray:
     Z = np.asarray(Z, dtype=np.float32)
     comp = decoder_model.predict(Z, verbose=0)
     comp = np.asarray(comp, dtype=np.float32)
-
-    # keep consistent with upstream physics constraint
     comp = project_comp_to_simplex_np(comp).astype(np.float32)
     return comp
 
@@ -4980,12 +4807,9 @@ print("Saved: tSNE_latent_original_sampled_optimized.jpeg")
 print("Saved: tSNE_latent_original_sampled_optimized.csv")
 
 
-# In[59]:
-
-
-# ============================
+# ======================================
 # Export sampled + optimized subsets
-# ============================
+# ======================================
 required = ["tsne_df"]
 for name in required:
     if name not in globals():
@@ -4998,9 +4822,6 @@ optimized_df.to_csv("optimized_latent_tsne_with_hardness.csv", index=False)
 
 print("Saved: sampled_latent_tsne_with_hardness.csv")
 print("Saved: optimized_latent_tsne_with_hardness.csv")
-
-
-# In[60]:
 
 
 # ============================
@@ -5221,436 +5042,3 @@ df_samp.to_csv("novelty_sampled_only.csv", index=False)
 df_opt.to_csv("novelty_optimized_only.csv", index=False)
 print("Saved: novelty_sampled_only.csv")
 print("Saved: novelty_optimized_only.csv")
-
-
-# In[61]:
-
-
-# ============================
-# Integrated Gradients (BN-safe, handles disconnected inputs)
-# ============================
-required = [
-    "final_model",
-    "scaler_load_final",
-    "composition_cols",
-    "X_comp_train_fit",
-    "X_load_train_fit_raw",
-    "X_comp_cal",
-    "X_load_cal_raw",
-    "seed",
-]
-for name in required:
-    if name not in globals():
-        raise RuntimeError(f"Missing required object: {name}")
-
-def ensure_2d_col_np(x: np.ndarray) -> np.ndarray:
-    x = np.asarray(x, dtype=np.float32)
-    if x.ndim == 1:
-        x = x.reshape(-1, 1)
-    if x.ndim != 2 or x.shape[1] != 1:
-        raise ValueError(f"Expected (N,1). Got {x.shape}.")
-    return x
-
-def scale_load_final_np(x_raw: np.ndarray, scaler) -> np.ndarray:
-    x_raw = ensure_2d_col_np(x_raw)
-    return scaler.transform(x_raw).astype(np.float32)
-
-def _model_output_to_tensor(out):
-    """Unify model output into a float32 tensor."""
-    if isinstance(out, dict):
-        out = out["Output_Layer"]
-    elif isinstance(out, (list, tuple)):
-        out = out[0]
-    return tf.convert_to_tensor(out, dtype=tf.float32)
-
-def integrated_gradients(
-    model: tf.keras.Model,
-    baseline_inputs,
-    input_inputs,
-    steps: int = 200,
-):
-    """
-    Returns IG attributions for each input tensor (comp, load).
-    Robust to disconnected graphs: if gradient is None, attribution is 0 for that input.
-    BN-safe: always calls model(..., training=False).
-    """
-    if steps < 2:
-        raise ValueError("steps must be >= 2")
-
-    baseline_comp, baseline_load = baseline_inputs
-    input_comp, input_load       = input_inputs
-
-    baseline_comp = tf.cast(baseline_comp, tf.float32)
-    baseline_load = tf.cast(baseline_load, tf.float32)
-    input_comp    = tf.cast(input_comp, tf.float32)
-    input_load    = tf.cast(input_load, tf.float32)
-
-    # Ensure consistent shapes
-    baseline_comp = tf.reshape(baseline_comp, (1, -1))
-    input_comp    = tf.reshape(input_comp, (1, -1))
-    baseline_load = tf.reshape(baseline_load, (1, 1))
-    input_load    = tf.reshape(input_load, (1, 1))
-
-    alphas = tf.linspace(0.0, 1.0, steps + 1)
-
-    acc_comp = tf.zeros_like(input_comp, dtype=tf.float32)
-    acc_load = tf.zeros_like(input_load, dtype=tf.float32)
-
-    prev_g_comp = None
-    prev_g_load = None
-
-    for a in alphas:
-        comp_a = baseline_comp + a * (input_comp - baseline_comp)
-        load_a = baseline_load + a * (input_load - baseline_load)
-
-        with tf.GradientTape() as tape:
-            tape.watch([comp_a, load_a])
-            out = model([comp_a, load_a], training=False)
-            out = _model_output_to_tensor(out)
-            obj = tf.reduce_sum(out)  # scalar objective
-
-        g_comp, g_load = tape.gradient(obj, [comp_a, load_a])
-
-        # ---- FIX: handle disconnected gradients (None) ----
-        if g_comp is None:
-            g_comp = tf.zeros_like(comp_a, dtype=tf.float32)
-        if g_load is None:
-            g_load = tf.zeros_like(load_a, dtype=tf.float32)
-
-        if prev_g_comp is not None:
-            acc_comp += 0.5 * (prev_g_comp + g_comp)
-            acc_load += 0.5 * (prev_g_load + g_load)
-
-        prev_g_comp, prev_g_load = g_comp, g_load
-
-    avg_g_comp = acc_comp / tf.cast(steps, tf.float32)
-    avg_g_load = acc_load / tf.cast(steps, tf.float32)
-
-    ig_comp = (input_comp - baseline_comp) * avg_g_comp
-    ig_load = (input_load - baseline_load) * avg_g_load
-    return ig_comp, ig_load
-
-# ----------------------------
-# Baselines from TRAIN (mean composition, mean load)
-# ----------------------------
-Xc_train = np.asarray(X_comp_train_fit, dtype=np.float32)
-Xl_train_raw = ensure_2d_col_np(np.asarray(X_load_train_fit_raw, dtype=np.float32))
-
-comp_baseline_np = Xc_train.mean(axis=0, keepdims=True).astype(np.float32)
-load_baseline_raw = Xl_train_raw.mean(axis=0, keepdims=True).astype(np.float32)
-load_baseline_scaled = scale_load_final_np(load_baseline_raw, scaler_load_final)
-
-# ----------------------------
-# Choose one CAL sample for IG
-# ----------------------------
-sample_idx = 0
-Xc_ref = np.asarray(X_comp_cal, dtype=np.float32)
-Xl_ref_raw = ensure_2d_col_np(np.asarray(X_load_cal_raw, dtype=np.float32))
-
-if sample_idx < 0 or sample_idx >= Xc_ref.shape[0]:
-    raise IndexError(f"sample_idx={sample_idx} out of range for X_comp_cal with N={Xc_ref.shape[0]}")
-
-comp_row = Xc_ref[sample_idx:sample_idx+1].astype(np.float32)
-load_row_raw = Xl_ref_raw[sample_idx:sample_idx+1].astype(np.float32)
-load_row_scaled = scale_load_final_np(load_row_raw, scaler_load_final)
-
-# TF tensors
-comp_baseline_tf = tf.constant(comp_baseline_np, dtype=tf.float32)
-load_baseline_tf = tf.constant(load_baseline_scaled, dtype=tf.float32)
-comp_input_tf    = tf.constant(comp_row, dtype=tf.float32)
-load_input_tf    = tf.constant(load_row_scaled, dtype=tf.float32)
-
-tf.keras.utils.set_random_seed(int(seed))
-ig_comp_tf, ig_load_tf = integrated_gradients(
-    final_model,
-    baseline_inputs=[comp_baseline_tf, load_baseline_tf],
-    input_inputs=[comp_input_tf, load_input_tf],
-    steps=200,
-)
-
-ig_comp = ig_comp_tf.numpy().reshape(-1).astype(np.float32)
-ig_load = ig_load_tf.numpy().reshape(-1).astype(np.float32)
-
-print(
-    "IG(comp) min/max:",
-    float(np.nanmin(ig_comp)),
-    float(np.nanmax(ig_comp)),
-    "nonfinite:",
-    bool(np.any(~np.isfinite(ig_comp))),
-)
-print("IG(load) value:", float(ig_load[0]))
-
-feature_names = list(composition_cols)
-mx = float(np.max(np.abs(ig_comp))) + 1e-12
-
-plt.figure(figsize=(16, 8))
-plt.bar(feature_names, ig_comp, edgecolor="black", linewidth=1.0)
-plt.ylim(-mx, mx)
-plt.xlabel("Compositional Constituent", fontsize=18, weight="bold")
-plt.ylabel("Integrated Gradients Attribution (model output y_scaled)", fontsize=18, weight="bold")
-plt.xticks(range(len(ig_comp)), feature_names, rotation=90, fontsize=12)
-plt.yticks(fontsize=12)
-plt.grid(False)
-for spine in plt.gca().spines.values():
-    spine.set_edgecolor("black")
-    spine.set_linewidth(1.5)
-
-plt.tight_layout()
-plt.savefig("Integrated_Gradients_FINALModel_Composition_yScaled.jpeg", dpi=600, format="jpeg")
-plt.show()
-
-
-# In[62]:
-
-
-# --- HARD DIAGNOSTIC: MC variance must be non-trivial ---
-mc_std_mean = float(np.mean(np.std(y_pred_samples_hv, axis=0)))
-mc_std_p50  = float(np.median(np.std(y_pred_samples_hv, axis=0)))
-print(f"[UQ DIAG] mean std over points = {mc_std_mean:.6f} HV | median std = {mc_std_p50:.6f} HV")
-
-if mc_std_mean < 1e-3:
-    raise RuntimeError(
-        "MC predictive samples are essentially deterministic (std ~ 0). "
-        "This will force PI widths ~0 and coverage ~0/undefined. "
-        "Fix upstream: ensure non-zero dropout rate and that set_mc_dropout toggles ALL MCDropout layers."
-    )
-
-
-# In[1]:
-
-
-# ============================
-# Regression UQ Calibration
-# ============================
-X_comp_te     = X_comp_test
-X_load_te_raw = X_load_test_raw
-y_te_full     = y_test_arr
-
-for name in ["final_model", "scaler_load_final", "y_mu_final", "y_sd_final", "seed",
-             "X_comp_te", "X_load_te_raw", "y_te_full"]:
-    if name not in globals():
-        raise RuntimeError(f"Missing required object: {name}")
-
-X_comp_eval = np.asarray(X_comp_te, dtype=np.float32)
-X_load_eval_raw = np.asarray(X_load_te_raw, dtype=np.float32)
-y_eval_vec = np.asarray(y_te_full, dtype=np.float32).reshape(-1)
-
-if X_load_eval_raw.ndim == 1:
-    X_load_eval_raw = X_load_eval_raw.reshape(-1, 1)
-if X_load_eval_raw.ndim != 2 or X_load_eval_raw.shape[1] != 1:
-    raise ValueError(f"X_load_eval_raw must be (N,1). Got {X_load_eval_raw.shape}")
-
-N = X_comp_eval.shape[0]
-if (X_load_eval_raw.shape[0] != N) or (y_eval_vec.shape[0] != N):
-    raise ValueError(
-        f"Length mismatch: X_comp N={N}, X_load N={X_load_eval_raw.shape[0]}, y N={y_eval_vec.shape[0]}"
-    )
-
-def _iter_layers(obj):
-    """Yield layers recursively for Keras/TF-Keras model-like objects."""
-    if hasattr(obj, "layers"):
-        for lyr in obj.layers:
-            yield lyr
-            if hasattr(lyr, "layers"):
-                yield from _iter_layers(lyr)
-
-def set_mc_dropout(model, active: bool) -> int:
-    """
-    Toggle MC-dropout layers (custom MCDropout with attribute mc_active).
-    Returns number of toggled layers. Does NOT use model.submodules.
-    """
-    active = bool(active)
-    n = 0
-    for m in _iter_layers(model):
-        if m.__class__.__name__ == "MCDropout" and hasattr(m, "mc_active"):
-            m.mc_active = active
-            n += 1
-    return n
-
-def _extract_y_scaled(out):
-    """
-    final_model sometimes returns a dict with keys:
-      'Output_Layer', 'Comp_Attention', 'Load_Attention', ...
-    Handle dict/list/tuple/tensor robustly.
-    """
-    if isinstance(out, dict):
-        if "Output_Layer" not in out:
-            raise KeyError(f"Model returned dict but missing 'Output_Layer'. Keys: {list(out.keys())}")
-        return out["Output_Layer"]
-    if isinstance(out, (list, tuple)):
-        return out[0]
-    return out
-
-def scale_load_final_np(x_raw: np.ndarray) -> np.ndarray:
-    x_raw = np.asarray(x_raw, dtype=np.float32)
-    if x_raw.ndim == 1:
-        x_raw = x_raw.reshape(-1, 1)
-    if x_raw.ndim != 2 or x_raw.shape[1] != 1:
-        raise ValueError(f"Expected load shape (N,1). Got {x_raw.shape}")
-    return scaler_load_final.transform(x_raw).astype(np.float32)
-
-def yscaled_to_hv_np(y_scaled: np.ndarray, y_mu: float, y_sd: float) -> np.ndarray:
-    y_scaled = np.asarray(y_scaled, dtype=np.float32).reshape(-1)
-    return (y_scaled * float(y_sd) + float(y_mu)).astype(np.float32)
-
-# If your y_te_full is already in HV units, set this to False.
-# If your y_te_full is stored as y_scaled, set this to True.
-ORIGINAL_Y_IS_SCALED = False
-
-y_eval_hv = yscaled_to_hv_np(y_eval_vec, y_mu_final, y_sd_final) if ORIGINAL_Y_IS_SCALED else y_eval_vec.astype(np.float32)
-
-X_load_eval_scaled = scale_load_final_np(X_load_eval_raw)
-
-def mc_predict_hv(
-    model,
-    Xc: np.ndarray,
-    Xl_scaled: np.ndarray,
-    S: int = 500,
-    batch_size: int = 512,
-    seed: int = 0,
-) -> np.ndarray:  
-    Xc = np.asarray(Xc, dtype=np.float32)
-    Xl_scaled = np.asarray(Xl_scaled, dtype=np.float32)
-    n = Xc.shape[0]
-
-    ds = tf.data.Dataset.from_tensor_slices((Xc, Xl_scaled)).batch(batch_size)
-    samples = np.empty((int(S), n), dtype=np.float32)
-
-    n_toggled = set_mc_dropout(model, True)
-    if n_toggled == 0:
-        raise RuntimeError(
-            "No MCDropout layers with attribute 'mc_active' were found. "
-            "MC-dropout sampling will be deterministic. Ensure final_model uses MCDropout."
-        )
-
-    try:
-        for s in range(int(S)):
-            tf.keras.utils.set_random_seed(int(seed) + 10000 + s)
-            preds = []
-            for xb, xl in ds:
-                out = model([xb, xl], training=False)
-                yb = _extract_y_scaled(out)
-                yb = tf.reshape(tf.cast(yb, tf.float32), (-1,)).numpy().astype(np.float32)
-                preds.append(yscaled_to_hv_np(yb, y_mu_final, y_sd_final))
-            samples[s, :] = np.concatenate(preds, axis=0)
-    finally:
-        set_mc_dropout(model, False)
-
-    return samples
-
-S_MC = 500
-y_pred_samples_hv = mc_predict_hv(
-    final_model, X_comp_eval, X_load_eval_scaled, S=S_MC, batch_size=512, seed=int(seed)
-)
-
-std_per_point = np.std(y_pred_samples_hv, axis=0)
-mc_std_mean = float(np.mean(std_per_point))
-mc_std_p50 = float(np.median(std_per_point))
-print(f"[UQ DIAG] MC std: mean={mc_std_mean:.6f} HV, median={mc_std_p50:.6f} HV")
-
-if mc_std_mean < 1e-3:
-    raise RuntimeError(
-        "MC predictive samples are essentially deterministic (std ~ 0). "
-        "Fix upstream: ensure final_model uses MCDropout and set_mc_dropout toggles mc_active."
-    )
-
-# PIT histogram
-y_eval = y_eval_hv.reshape(-1)
-S = y_pred_samples_hv.shape[0]
-
-pit = (np.sum(y_pred_samples_hv < y_eval[None, :], axis=0) +
-       0.5 * np.sum(y_pred_samples_hv == y_eval[None, :], axis=0)) / float(S)
-pit = pit.astype(np.float32)
-
-plt.figure(figsize=(10, 7))
-plt.hist(pit, bins=20, edgecolor="black")
-plt.xlabel("PIT value", fontsize=16, weight="bold")
-plt.ylabel("Count", fontsize=16, weight="bold")
-plt.tight_layout()
-plt.savefig("uq_pit_histogram_HV_FINAL.jpeg", dpi=600, format="jpeg")
-plt.show()
-
-# Coverage vs nominal + sharpness
-confidence_levels = np.linspace(0.05, 0.95, 10).astype(np.float32)
-coverage_probabilities = []
-interval_widths = []
-
-for c in confidence_levels:
-    lower_q = float((1.0 - c) / 2.0)
-    upper_q = float(1.0 - lower_q)
-
-    lower_bound = np.quantile(y_pred_samples_hv, lower_q, axis=0).astype(np.float32)
-    upper_bound = np.quantile(y_pred_samples_hv, upper_q, axis=0).astype(np.float32)
-
-    cov = np.mean((y_eval >= lower_bound) & (y_eval <= upper_bound))
-    coverage_probabilities.append(float(cov))
-
-    width = np.mean(upper_bound - lower_bound)
-    interval_widths.append(float(width))
-
-coverage_probabilities = np.asarray(coverage_probabilities, dtype=np.float32)
-interval_widths = np.asarray(interval_widths, dtype=np.float32)
-
-abs_miscal = np.abs(coverage_probabilities - confidence_levels)
-mace = float(np.mean(abs_miscal))
-imce = float(np.trapz(abs_miscal, confidence_levels))
-print(f"Calibration (HV): MACE={mace:.4f}, IMCE={imce:.4f}")
-
-# Reliability diagram
-plt.figure(figsize=(10, 8))
-plt.plot(confidence_levels, coverage_probabilities, "o-", label="Empirical coverage")
-plt.plot([confidence_levels.min(), confidence_levels.max()],
-         [confidence_levels.min(), confidence_levels.max()],
-         "k--", label="Perfect calibration")
-plt.xlabel("Nominal confidence level")
-plt.ylabel("Empirical coverage")
-plt.legend()
-plt.tight_layout()
-plt.savefig("uq_reliability_coverage_vs_nominal_HV_FINAL.jpeg", dpi=600, format="jpeg")
-plt.show()
-
-# Sharpness
-plt.figure(figsize=(10, 8))
-plt.plot(confidence_levels, interval_widths, "o-")
-plt.xlabel("Nominal confidence level")
-plt.ylabel("Mean prediction-interval width (HV)")
-plt.tight_layout()
-plt.savefig("uq_sharpness_interval_width_HV_FINAL.jpeg", dpi=600, format="jpeg")
-plt.show()
-
-calib_df = pd.DataFrame({
-    "confidence_level": confidence_levels,
-    "empirical_coverage": coverage_probabilities,
-    "abs_miscalibration": abs_miscal.astype(np.float32),
-    "mean_interval_width_HV": interval_widths.astype(np.float32),
-})
-calib_df.to_csv("uq_calibration_coverage_curve_HV_FINAL.csv", index=False)
-
-summary_df = pd.DataFrame([{
-    "MACE": mace,
-    "IMCE": imce,
-    "MC_std_mean_HV": mc_std_mean,
-    "MC_std_median_HV": mc_std_p50
-}])
-summary_df.to_csv("uq_calibration_summary_HV_FINAL.csv", index=False)
-
-print("Saved: uq_calibration_coverage_curve_HV_FINAL.csv, uq_calibration_summary_HV_FINAL.csv")
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
-
-# In[ ]:
-
-
-
-
