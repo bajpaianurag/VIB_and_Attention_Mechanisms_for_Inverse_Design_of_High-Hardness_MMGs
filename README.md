@@ -1,6 +1,6 @@
 # VIB + Attention for Inverse Design of High‑Hardness Metallic Multi‑Component Glasses
 
-This repository contains the code and data used for the article **Attention-Enhanced Variational Learning for Physically Informed Design of Ultra-hard Multicomponent Metallic Glasses** for designing exceptionally hard multi-component bulk metallic glasses.
+This repository contains the code and data used for the article **Attention-Enhanced Variational Learning for Physically Informed Design of Exceptionally hard Multicomponent Metallic Glasses** for designing exceptionally hard multi-component bulk metallic glasses.
 
 > **Reproducibility note**: The main ML scripts use a fixed random seed (see each script). For paper‑level statistics (mean ± std over multiple seeds), run the same pipeline over 10 seeds and aggregate the exported metrics.
 
