@@ -50,7 +50,7 @@ pip install -r requirements.txt
 
 ---
 
-## A. Main model: VIB + Attention (hardness regression)
+## A. Main model: VIB + Attention
 
 ### Run
 
