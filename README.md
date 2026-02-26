@@ -24,8 +24,7 @@ This repository contains the code and data used for the article **Attention-Enha
 │   ├── post-processing/                # RDF, Voronoi, coordination, bond metrics
 │   └── REAMD.md                        # MD module documentation
 ├── requirements*.txt                   # Installation options
-├── environment.yml                     # Conda environment (recommended for reviewers)
-└── CITATION.cff                        # Citation metadata (fill DOI after acceptance)
+└── environment.yml                     # Conda environment (recommended for reviewers)
 ```
 
 ---
