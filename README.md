@@ -117,6 +117,7 @@ python baselines/gp_bo_baseline.py
 The MD module lives in `md/md_codes/`. It includes:
 - A LAMMPS input generator (`script.py`) driven by `comp.csv`
 - Post‑processing scripts for RDF, pair RDF, coordination number, bond statistics, and Voronoi analysis
+- Final atomic configurations of the five alloys post-quenching and equilibrium
 
 ### Read the MD module documentation
 
