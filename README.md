@@ -22,7 +22,7 @@ This repository contains the code and data used for the article **Attention-Enha
 │   ├── script.py                       # LAMMPS input generator from comp.csv
 │   ├── comp.csv                        # Final developed compositions for MD
 │   ├── post-processing/                # RDF, Voronoi, coordination, bond metrics
-│   ├──Final MD alloy configurations/   # Final atomic configurations of simulated alloys
+│   ├── Final MD alloy configurations/   # Final atomic configurations of simulated alloys
 │   └── REAMD.md                        # MD module documentation
 ├── requirements*.txt                   # Installation options
 └── environment.yml                     # Conda environment (recommended for reviewers)
